@@ -1,0 +1,1954 @@
+(() => {
+  "use strict";
+
+  const WIDTH = 1179;
+  const HEIGHT = 543;
+  const RANKING_KEY = "gekokujoRankings";
+
+  const canvas = document.getElementById("game");
+  const ctx = canvas.getContext("2d");
+  ctx.imageSmoothingEnabled = false;
+
+  const EMBEDDED_ASSETS = window.GEKOKUJO_EMBEDDED_ASSETS || {};
+  const ASSET_PATHS = {
+    avatar: EMBEDDED_ASSETS.avatar || "asset/asset_avater_sprit.png",
+    background: EMBEDDED_ASSETS.background || "asset/asset_backgroud.png",
+    battle: EMBEDDED_ASSETS.battle || "asset/edo_battle_background.png",
+    characters: {
+      chiikawa: EMBEDDED_ASSETS.chiikawa || "asset/characters/chiikawa-sheet.png",
+      hachiware: EMBEDDED_ASSETS.hachiware || "asset/characters/hachiware-sheet.png",
+      usagi: EMBEDDED_ASSETS.usagi || "asset/characters/usagi-sheet.png",
+    },
+    enemies: {
+      farmer: EMBEDDED_ASSETS.enemyFarmer || "asset/enemies/farmer-sheet.png",
+      ashigaru: EMBEDDED_ASSETS.enemyAshigaru || "asset/enemies/ashigaru-sheet.png",
+      samurai: EMBEDDED_ASSETS.enemySamurai || "asset/enemies/samurai-sheet.png",
+      daimyo: EMBEDDED_ASSETS.enemyDaimyo || "asset/enemies/daimyo-sheet.png",
+      shogun: EMBEDDED_ASSETS.enemyShogun || "asset/enemies/shogun-sheet.png",
+    },
+  };
+
+  const COLORS = {
+    ink: "#443638",
+    paper: "#fbf4ea",
+    muted: "#7b6b67",
+    red: "#b94d45",
+    blue: "#7fb6d3",
+    gold: "#e6bd4e",
+    green: "#85b37b",
+    shadow: "rgba(67,54,56,0.2)",
+  };
+
+  const RANKS = [
+    { rank: 1, name: "农民", jp: "農", spriteKey: "farmer", score: 80, hp: 32, speed: 66, damage: 6, color: "#8aa879" },
+    { rank: 2, name: "足轻", jp: "足", spriteKey: "ashigaru", score: 145, hp: 46, speed: 72, damage: 8, color: "#d9b34f" },
+    { rank: 3, name: "武士", jp: "武", spriteKey: "samurai", score: 240, hp: 70, speed: 77, damage: 11, color: "#8eb5ce" },
+    { rank: 4, name: "大名", jp: "大", spriteKey: "daimyo", score: 430, hp: 115, speed: 62, damage: 16, color: "#bc5f55" },
+    { rank: 5, name: "将军", jp: "将", spriteKey: "shogun", score: 760, hp: 170, speed: 52, damage: 23, color: "#e3bb45" },
+  ];
+
+  const ROLES = [
+    {
+      id: "chiikawa",
+      name: "吉伊",
+      jp: "ちいかわ",
+      title: "软萌勇气",
+      row: 0,
+      spriteKey: "chiikawa",
+      rank: 1,
+      maxHp: 118,
+      speed: 158,
+      attack: 20,
+      range: 60,
+      cooldown: 0.36,
+      color: "#8fb3a5",
+      trait: "可爱但会认真挥棍。",
+    },
+    {
+      id: "hachiware",
+      name: "小八",
+      jp: "ハチワレ",
+      title: "友善支援",
+      row: 1,
+      spriteKey: "hachiware",
+      rank: 2,
+      maxHp: 108,
+      speed: 148,
+      attack: 18,
+      range: 66,
+      cooldown: 0.34,
+      color: "#e7c64f",
+      trait: "开朗可靠，步伐最稳。",
+    },
+    {
+      id: "usagi",
+      name: "乌萨奇",
+      jp: "うさぎ",
+      title: "古灵精怪",
+      row: 2,
+      spriteKey: "usagi",
+      rank: 3,
+      maxHp: 98,
+      speed: 168,
+      attack: 26,
+      range: 62,
+      cooldown: 0.45,
+      color: "#d3b69f",
+      trait: "跳脱怪招，斧头很忙。",
+    },
+  ];
+
+  const FAKE_RANKINGS = [
+    { name: "小八-蓝", score: 6280, title: "天下级", bestDefeatRank: "将军", createdAt: "2026-04-20T08:00:00.000Z", fake: true },
+    { name: "吉伊-粉", score: 5140, title: "传说下克上", bestDefeatRank: "将军", createdAt: "2026-04-21T08:00:00.000Z", fake: true },
+    { name: "瓦版太郎", score: 4580, title: "大名克星", bestDefeatRank: "大名", createdAt: "2026-04-22T08:00:00.000Z", fake: true },
+    { name: "团子忍者", score: 3900, title: "反骨达人", bestDefeatRank: "大名", createdAt: "2026-04-23T08:00:00.000Z", fake: true },
+    { name: "桥边浪人", score: 3160, title: "御前新星", bestDefeatRank: "浪人", createdAt: "2026-04-24T08:00:00.000Z", fake: true },
+  ];
+
+  const FRAME_X = {
+    front: [34, 92, 205],
+    side: [262, 92, 215],
+    back: [704, 92, 214],
+    weapon: [922, 92, 245],
+    attack: [1110, 92, 265],
+    hurt: [1348, 92, 215],
+    win: [1560, 92, 205],
+  };
+  const ROW_Y = [76, 318, 552];
+  const FRAME_H = 238;
+
+  const SHEET_RECTS = {
+    tree: [42, 415, 220, 230],
+    bush: [300, 472, 174, 90],
+    house: [444, 408, 318, 250],
+    sign: [744, 465, 164, 136],
+    fence: [920, 506, 260, 96],
+    stump: [1210, 505, 116, 112],
+    heart: [208, 885, 72, 68],
+    coin: [322, 884, 72, 74],
+    dust: [740, 870, 90, 78],
+    slash: [1142, 878, 192, 120],
+  };
+
+  const state = {
+    scene: "loading",
+    images: {},
+    sprites: {},
+    characterSprites: {},
+    enemySprites: {},
+    sheet: {},
+    buttons: [],
+    keys: new Set(),
+    pointer: { x: WIDTH / 2, y: HEIGHT / 2, down: false, active: false },
+    selectedRole: 0,
+    game: null,
+    result: null,
+    loadError: "",
+  };
+
+  const upgradePool = [
+    {
+      id: "attack",
+      name: "破竹一击",
+      desc: "攻击力提升",
+      apply(game) {
+        game.attackMult += 0.18;
+      },
+    },
+    {
+      id: "speed",
+      name: "草鞋疾走",
+      desc: "移动速度提升",
+      apply(game) {
+        game.speedBonus += 18;
+      },
+    },
+    {
+      id: "heal",
+      name: "三色团子",
+      desc: "体力上限和体力回复",
+      apply(game) {
+        game.player.maxHp += 12;
+        game.player.hp = Math.min(game.player.maxHp, game.player.hp + 44);
+      },
+    },
+    {
+      id: "rebel",
+      name: "反骨御守",
+      desc: "下克上倍率提升",
+      apply(game) {
+        game.rebelLevel += 1;
+      },
+    },
+    {
+      id: "range",
+      name: "长柄竹竿",
+      desc: "攻击范围扩大",
+      apply(game) {
+        game.rangeBonus += 12;
+      },
+    },
+    {
+      id: "coin",
+      name: "小判嗅觉",
+      desc: "得分收益提升",
+      apply(game) {
+        game.scoreMult += 0.13;
+      },
+    },
+    {
+      id: "guard",
+      name: "身份潜伏",
+      desc: "受到伤害降低",
+      apply(game) {
+        game.damageTakenMult = Math.max(0.62, game.damageTakenMult - 0.08);
+      },
+    },
+  ];
+
+  let lastTime = performance.now();
+
+  function loadImage(src) {
+    return new Promise((resolve, reject) => {
+      const image = new Image();
+      image.onload = () => resolve(image);
+      image.onerror = () => reject(new Error(`无法加载 ${src}`));
+      image.src = src;
+    });
+  }
+
+  function makeCutout(image, sx, sy, sw, sh, threshold = 246) {
+    const rawFrame = {
+      image,
+      sx,
+      sy,
+      sw,
+      sh,
+      width: sw,
+      height: sh,
+      raw: true,
+    };
+    const out = document.createElement("canvas");
+    out.width = sw;
+    out.height = sh;
+    const outCtx = out.getContext("2d");
+    outCtx.imageSmoothingEnabled = false;
+    outCtx.drawImage(image, sx, sy, sw, sh, 0, 0, sw, sh);
+    let pixels;
+    try {
+      pixels = outCtx.getImageData(0, 0, sw, sh);
+    } catch {
+      return rawFrame;
+    }
+    const data = pixels.data;
+    for (let i = 0; i < data.length; i += 4) {
+      if (data[i] > threshold && data[i + 1] > threshold && data[i + 2] > threshold) {
+        data[i + 3] = 0;
+      }
+    }
+    outCtx.putImageData(pixels, 0, 0);
+    return {
+      image: out,
+      sx: 0,
+      sy: 0,
+      sw,
+      sh,
+      width: sw,
+      height: sh,
+      raw: false,
+    };
+  }
+
+  function buildAssets() {
+    for (let row = 0; row < 3; row += 1) {
+      state.sprites[row] = {};
+      Object.entries(FRAME_X).forEach(([name, rect]) => {
+        state.sprites[row][name] = makeCutout(
+          state.images.avatar,
+          rect[0],
+          ROW_Y[row],
+          rect[2],
+          FRAME_H,
+          248
+        );
+      });
+    }
+    Object.entries(SHEET_RECTS).forEach(([name, rect]) => {
+      state.sheet[name] = makeCutout(state.images.background, rect[0], rect[1], rect[2], rect[3], 249);
+    });
+    buildCharacterSprites();
+    buildEnemySprites();
+  }
+
+  function buildGridSprites(images, target) {
+    const rowNames = ["front", "side", "back", "attack", "emote"];
+    Object.entries(images || {}).forEach(([key, image]) => {
+      if (!image) return;
+      const cellW = image.width / 6;
+      const cellH = image.height / 5;
+      target[key] = {};
+      rowNames.forEach((rowName, row) => {
+        target[key][rowName] = Array.from({ length: 6 }, (_, col) => ({
+          image,
+          sx: col * cellW,
+          sy: row * cellH,
+          sw: cellW,
+          sh: cellH,
+          width: cellW,
+          height: cellH,
+          raw: false,
+        }));
+      });
+    });
+  }
+
+  function buildCharacterSprites() {
+    buildGridSprites(state.images.characters, state.characterSprites);
+  }
+
+  function buildEnemySprites() {
+    buildGridSprites(state.images.enemies, state.enemySprites);
+  }
+
+  Promise.all([
+    loadImage(ASSET_PATHS.avatar),
+    loadImage(ASSET_PATHS.background),
+    loadImage(ASSET_PATHS.battle).catch(() => null),
+    loadImage(ASSET_PATHS.characters.chiikawa).catch(() => null),
+    loadImage(ASSET_PATHS.characters.hachiware).catch(() => null),
+    loadImage(ASSET_PATHS.characters.usagi).catch(() => null),
+    loadImage(ASSET_PATHS.enemies.farmer).catch(() => null),
+    loadImage(ASSET_PATHS.enemies.ashigaru).catch(() => null),
+    loadImage(ASSET_PATHS.enemies.samurai).catch(() => null),
+    loadImage(ASSET_PATHS.enemies.daimyo).catch(() => null),
+    loadImage(ASSET_PATHS.enemies.shogun).catch(() => null),
+  ])
+    .then(([avatar, background, battleBackground, chiikawa, hachiware, usagi, farmer, ashigaru, samurai, daimyo, shogun]) => {
+      state.images.avatar = avatar;
+      state.images.background = background;
+      state.images.characters = { chiikawa, hachiware, usagi };
+      state.images.enemies = { farmer, ashigaru, samurai, daimyo, shogun };
+      if (battleBackground) {
+        state.images.battleBackground = battleBackground;
+      }
+      buildAssets();
+      state.scene = "start";
+      canvas.focus();
+      requestAnimationFrame(loop);
+    })
+    .catch((error) => {
+      state.scene = "error";
+      state.loadError = error.message;
+      requestAnimationFrame(loop);
+    });
+
+  window.addEventListener("keydown", (event) => {
+    const key = event.key.toLowerCase();
+    state.keys.add(key);
+    if ([" ", "arrowup", "arrowdown", "arrowleft", "arrowright"].includes(key)) {
+      event.preventDefault();
+    }
+    if (state.scene === "playing") {
+      if (key === " " || key === "j") {
+        attackWithPlayer();
+      }
+      if (key === "shift") {
+        dashPlayer();
+      }
+    }
+    if (state.scene === "upgrade" && ["1", "2", "3"].includes(key)) {
+      chooseUpgrade(Number(key) - 1);
+    }
+  });
+
+  window.addEventListener("keyup", (event) => {
+    state.keys.delete(event.key.toLowerCase());
+  });
+
+  canvas.addEventListener("pointerdown", (event) => {
+    canvas.focus();
+    const point = getCanvasPoint(event);
+    state.pointer = { ...point, down: true, active: true };
+    const button = [...state.buttons].reverse().find((item) => pointInRect(point, item));
+    if (button) {
+      button.onClick();
+      return;
+    }
+    if (state.scene === "playing") {
+      attackWithPlayer(point);
+    }
+  });
+
+  canvas.addEventListener("pointermove", (event) => {
+    state.pointer = { ...getCanvasPoint(event), down: state.pointer.down, active: true };
+  });
+
+  canvas.addEventListener("mousemove", (event) => {
+    state.pointer = { ...getCanvasPoint(event), down: state.pointer.down, active: true };
+  });
+
+  canvas.addEventListener("pointerup", () => {
+    state.pointer.down = false;
+  });
+
+  canvas.addEventListener("pointerleave", () => {
+    state.pointer.down = false;
+    state.pointer.active = false;
+  });
+
+  function getCanvasPoint(event) {
+    const rect = canvas.getBoundingClientRect();
+    return {
+      x: ((event.clientX - rect.left) / rect.width) * WIDTH,
+      y: ((event.clientY - rect.top) / rect.height) * HEIGHT,
+    };
+  }
+
+  function pointInRect(point, rect) {
+    return point.x >= rect.x && point.x <= rect.x + rect.w && point.y >= rect.y && point.y <= rect.y + rect.h;
+  }
+
+  function loop(now) {
+    const dt = Math.min(0.033, (now - lastTime) / 1000);
+    lastTime = now;
+    update(dt);
+    draw();
+    requestAnimationFrame(loop);
+  }
+
+  function update(dt) {
+    if (state.scene !== "playing" || !state.game) return;
+    const game = state.game;
+    game.elapsed += dt;
+    game.floaters.forEach((floater) => {
+      floater.y -= 34 * dt;
+      floater.life -= dt;
+    });
+    game.floaters = game.floaters.filter((floater) => floater.life > 0);
+    game.effects.forEach((effect) => {
+      effect.life -= dt;
+      effect.age += dt;
+    });
+    game.effects = game.effects.filter((effect) => effect.life > 0);
+
+    updatePlayer(dt);
+    updateEnemies(dt);
+    updateDrops(dt);
+
+    if (game.player.hp <= 0) {
+      finishGame("lose");
+      return;
+    }
+    if (game.elapsed >= game.duration) {
+      finishGame("time");
+      return;
+    }
+    if (game.enemies.length === 0) {
+      beginUpgrade();
+    }
+  }
+
+  function createGame(roleIndex) {
+    const role = ROLES[roleIndex];
+    const player = {
+      x: WIDTH * 0.5,
+      y: HEIGHT * 0.58,
+      vx: 0,
+      vy: 0,
+      dirX: 1,
+      dirY: 0,
+      aimX: 1,
+      aimY: 0,
+      attackDirX: 1,
+      attackDirY: 0,
+      radius: 25,
+      row: role.row,
+      role,
+      rank: role.rank,
+      hp: role.maxHp,
+      maxHp: role.maxHp,
+      attackCooldown: 0,
+      attackTimer: 0,
+      dashCooldown: 0,
+      dashTime: 0,
+      invuln: 0,
+      hurt: 0,
+      moving: false,
+      shields: 0,
+      speedBuff: 0,
+    };
+
+    const game = {
+      player,
+      role,
+      score: 0,
+      elapsed: 0,
+      duration: 60,
+      wave: 0,
+      enemies: [],
+      drops: [],
+      effects: [],
+      floaters: [],
+      attackMult: 1,
+      rangeBonus: 0,
+      speedBonus: 0,
+      scoreMult: 1,
+      rebelLevel: 0,
+      damageTakenMult: 1,
+      bestDefeatRank: role.rank,
+      highestMultiplier: 1,
+      kills: 0,
+      pendingUpgrades: [],
+      resultSaved: false,
+      reason: "time",
+    };
+    state.game = game;
+    state.pointer.active = false;
+    state.pointer.down = false;
+    spawnWave();
+    state.scene = "playing";
+    lastTime = performance.now();
+  }
+
+  function spawnWave() {
+    const game = state.game;
+    game.wave += 1;
+    const count = Math.min(8, 3 + game.wave);
+    for (let i = 0; i < count; i += 1) {
+      const rank = rollEnemyRank(game.wave, i);
+      game.enemies.push(createEnemy(rank));
+    }
+    addFloater(`第 ${game.wave} 波`, WIDTH / 2, 112, COLORS.red, 1.3);
+  }
+
+  function rollEnemyRank(wave, index) {
+    const base = Math.min(5, 1 + Math.floor((wave + index * 0.4) / 2));
+    const bonus = Math.random() < 0.25 + wave * 0.03 ? 1 : 0;
+    const surprise = Math.random() < 0.08 ? 2 : 0;
+    return Math.max(1, Math.min(5, base + bonus + surprise));
+  }
+
+  function createEnemy(rank) {
+    const rankInfo = RANKS[rank - 1];
+    const side = Math.floor(Math.random() * 4);
+    const spawn = [
+      { x: 80 + Math.random() * 200, y: 190 + Math.random() * 280 },
+      { x: WIDTH - 80 - Math.random() * 200, y: 190 + Math.random() * 280 },
+      { x: 120 + Math.random() * (WIDTH - 240), y: 185 },
+      { x: 120 + Math.random() * (WIDTH - 240), y: HEIGHT - 70 },
+    ][side];
+    const row = rank <= 2 ? rank - 1 : (rank + 1) % 3;
+    return {
+      id: cryptoRandomId(),
+      x: spawn.x,
+      y: spawn.y,
+      vx: 0,
+      vy: 0,
+      row,
+      rank,
+      rankInfo,
+      radius: 20 + rank * 3,
+      hp: rankInfo.hp + state.game.wave * 7,
+      maxHp: rankInfo.hp + state.game.wave * 7,
+      speed: rankInfo.speed + Math.random() * 8,
+      damage: rankInfo.damage,
+      cooldown: 0.7 + Math.random() * 0.3,
+      attackTimer: 0,
+      hurt: 0,
+      moving: false,
+      dirX: Math.random() > 0.5 ? 1 : -1,
+      dirY: 0,
+    };
+  }
+
+  function cryptoRandomId() {
+    if (window.crypto && window.crypto.getRandomValues) {
+      const values = new Uint32Array(1);
+      window.crypto.getRandomValues(values);
+      return values[0].toString(36);
+    }
+    return Math.random().toString(36).slice(2);
+  }
+
+  function updatePlayer(dt) {
+    const game = state.game;
+    const player = game.player;
+    const left = state.keys.has("a") || state.keys.has("arrowleft");
+    const right = state.keys.has("d") || state.keys.has("arrowright");
+    const up = state.keys.has("w") || state.keys.has("arrowup");
+    const down = state.keys.has("s") || state.keys.has("arrowdown");
+    let dx = (right ? 1 : 0) - (left ? 1 : 0);
+    let dy = (down ? 1 : 0) - (up ? 1 : 0);
+    const length = Math.hypot(dx, dy);
+    player.moving = length > 0;
+    if (length > 0) {
+      dx /= length;
+      dy /= length;
+    }
+
+    const dashBoost = player.dashTime > 0 ? 2.45 : 1;
+    const speedBuff = player.speedBuff > 0 ? 34 : 0;
+    const speed = (player.role.speed + game.speedBonus + speedBuff) * dashBoost;
+    player.x = clamp(player.x + dx * speed * dt, 34, WIDTH - 34);
+    player.y = clamp(player.y + dy * speed * dt, 172, HEIGHT - 34);
+
+    const aimDx = state.pointer.x - player.x;
+    const aimDy = state.pointer.y - player.y;
+    const aimDistance = Math.hypot(aimDx, aimDy);
+    if (state.pointer.active && aimDistance > 24) {
+      setPlayerAim(player, aimDx / aimDistance, aimDy / aimDistance);
+    } else if (length > 0) {
+      setPlayerAim(player, dx, dy);
+    }
+
+    player.attackCooldown = Math.max(0, player.attackCooldown - dt);
+    player.attackTimer = Math.max(0, player.attackTimer - dt);
+    player.dashCooldown = Math.max(0, player.dashCooldown - dt);
+    player.dashTime = Math.max(0, player.dashTime - dt);
+    player.invuln = Math.max(0, player.invuln - dt);
+    player.hurt = Math.max(0, player.hurt - dt);
+    player.speedBuff = Math.max(0, player.speedBuff - dt);
+  }
+
+  function setPlayerAim(player, x, y) {
+    const length = Math.max(1, Math.hypot(x, y));
+    player.aimX = x / length;
+    player.aimY = y / length;
+    player.dirX = player.aimX;
+    player.dirY = player.aimY;
+  }
+
+  function updateEnemies(dt) {
+    const game = state.game;
+    const player = game.player;
+    for (const enemy of game.enemies) {
+      enemy.cooldown = Math.max(0, enemy.cooldown - dt);
+      enemy.attackTimer = Math.max(0, enemy.attackTimer - dt);
+      enemy.hurt = Math.max(0, enemy.hurt - dt);
+      const toPlayerX = player.x - enemy.x;
+      const toPlayerY = player.y - enemy.y;
+      const distance = Math.max(1, Math.hypot(toPlayerX, toPlayerY));
+      const nx = toPlayerX / distance;
+      const ny = toPlayerY / distance;
+      enemy.dirX = nx;
+      enemy.dirY = ny;
+
+      enemy.moving = enemy.hurt <= 0 && distance > 45 + enemy.rank * 4;
+      if (enemy.moving) {
+        enemy.vx += nx * enemy.speed * 2.5 * dt;
+        enemy.vy += ny * enemy.speed * 2.5 * dt;
+      }
+      enemy.x = clamp(enemy.x + enemy.vx * dt, 32, WIDTH - 32);
+      enemy.y = clamp(enemy.y + enemy.vy * dt, 176, HEIGHT - 28);
+      enemy.vx *= 0.88;
+      enemy.vy *= 0.88;
+
+      if (distance < player.radius + enemy.radius + 8 && enemy.cooldown <= 0) {
+        enemy.cooldown = 1.05;
+        enemy.attackDirX = nx;
+        enemy.attackDirY = ny;
+        enemy.attackDuration = 0.5;
+        enemy.attackTimer = enemy.attackDuration;
+        damagePlayer(enemy.damage, enemy);
+        addEffect("hit", player.x, player.y - 20, enemy.rankInfo.color);
+      }
+    }
+  }
+
+  function updateDrops(dt) {
+    const game = state.game;
+    const player = game.player;
+    for (const drop of game.drops) {
+      drop.life -= dt;
+      drop.bob += dt * 5;
+      if (Math.hypot(drop.x - player.x, drop.y - player.y) < player.radius + 18) {
+        collectDrop(drop);
+        drop.collected = true;
+      }
+    }
+    game.drops = game.drops.filter((drop) => !drop.collected && drop.life > 0);
+  }
+
+  function damagePlayer(amount, enemy) {
+    const game = state.game;
+    const player = game.player;
+    if (player.invuln > 0) return;
+    if (player.shields > 0) {
+      player.shields -= 1;
+      player.invuln = 0.4;
+      addFloater("御守", player.x, player.y - 58, COLORS.blue, 0.8);
+      return;
+    }
+    const damage = Math.ceil(amount * game.damageTakenMult);
+    player.hp -= damage;
+    player.hurt = 0.28;
+    player.invuln = 0.55;
+    const pushX = (player.x - enemy.x) / Math.max(1, Math.hypot(player.x - enemy.x, player.y - enemy.y));
+    player.x = clamp(player.x + pushX * 16, 34, WIDTH - 34);
+    addFloater(`-${damage}`, player.x, player.y - 52, COLORS.red, 0.65);
+  }
+
+  function attackWithPlayer(target) {
+    const game = state.game;
+    if (!game || state.scene !== "playing") return;
+    const player = game.player;
+    if (player.attackCooldown > 0) return;
+    if (target) {
+      const dx = target.x - player.x;
+      const dy = target.y - player.y;
+      const distance = Math.max(1, Math.hypot(dx, dy));
+      setPlayerAim(player, dx / distance, dy / distance);
+    } else if (!state.pointer.active) {
+      const nearest = findNearestEnemy(player, 190);
+      if (nearest) {
+        setPlayerAim(player, nearest.x - player.x, nearest.y - player.y);
+      }
+    }
+    player.attackCooldown = Math.max(0.18, player.role.cooldown - game.rebelLevel * 0.015);
+    player.attackDirX = player.aimX;
+    player.attackDirY = player.aimY;
+    player.attackDuration = 0.75;
+    player.attackTimer = player.attackDuration;
+    const range = player.role.range + game.rangeBonus;
+    let hitCount = 0;
+    for (const enemy of game.enemies) {
+      const dx = enemy.x - player.x;
+      const dy = enemy.y - player.y;
+      const distance = Math.hypot(dx, dy);
+      const dot = (dx * player.aimX + dy * player.aimY) / Math.max(1, distance);
+      if (distance <= range + enemy.radius && dot > 0.08) {
+        hitEnemy(enemy, player, distance);
+        hitCount += 1;
+      }
+    }
+    const sx = player.x + player.attackDirX * 45;
+    const sy = player.y + player.attackDirY * 28 - 18;
+    addEffect(hitCount > 0 ? "slash" : "swing", sx, sy, player.role.color, Math.atan2(player.attackDirY, player.attackDirX));
+  }
+
+  function findNearestEnemy(player, maxDistance) {
+    let nearest = null;
+    let bestDistance = maxDistance;
+    for (const enemy of state.game.enemies) {
+      const distance = Math.hypot(enemy.x - player.x, enemy.y - player.y);
+      if (distance < bestDistance) {
+        bestDistance = distance;
+        nearest = enemy;
+      }
+    }
+    return nearest;
+  }
+
+  function hitEnemy(enemy, player, distance) {
+    const game = state.game;
+    const highRankBonus = enemy.rank > player.rank ? 1 + game.rebelLevel * 0.16 + (enemy.rank - player.rank) * 0.06 : 1;
+    const damage = Math.round(player.role.attack * game.attackMult * highRankBonus);
+    enemy.hp -= damage;
+    enemy.hurt = 0.25;
+    enemy.vx += (enemy.x - player.x) / Math.max(1, distance) * 260;
+    enemy.vy += (enemy.y - player.y) / Math.max(1, distance) * 160;
+    addFloater(`-${damage}`, enemy.x, enemy.y - 46, COLORS.ink, 0.55);
+    if (enemy.hp <= 0) {
+      defeatEnemy(enemy);
+    }
+  }
+
+  function defeatEnemy(enemy) {
+    const game = state.game;
+    const player = game.player;
+    const multiplier = calculateMultiplier(player.rank, enemy.rank);
+    const points = Math.round(enemy.rankInfo.score * multiplier * game.scoreMult);
+    game.score += points;
+    game.kills += 1;
+    game.bestDefeatRank = Math.max(game.bestDefeatRank, enemy.rank);
+    game.highestMultiplier = Math.max(game.highestMultiplier, multiplier);
+    game.enemies = game.enemies.filter((item) => item.id !== enemy.id);
+    addFloater(`+${points}`, enemy.x, enemy.y - 62, enemy.rankInfo.color, 0.85);
+    addEffect("burst", enemy.x, enemy.y - 18, enemy.rankInfo.color);
+    maybeDropItem(enemy);
+  }
+
+  function calculateMultiplier(playerRank, enemyRank) {
+    if (enemyRank > playerRank) {
+      return 1 + (enemyRank - playerRank) * 0.72 + state.game.rebelLevel * 0.18;
+    }
+    if (enemyRank === playerRank) return 1;
+    return 0.42;
+  }
+
+  function maybeDropItem(enemy) {
+    const game = state.game;
+    const chance = 0.42 + Math.min(0.25, enemy.rank * 0.05);
+    if (Math.random() > chance) return;
+    const table = [
+      { type: "dango", weight: 22 },
+      { type: "coin", weight: 34 },
+      { type: "sandal", weight: 16 },
+      { type: "guard", weight: 14 },
+      { type: "rebel", weight: 10 + enemy.rank * 2 },
+    ];
+    const type = weightedPick(table);
+    game.drops.push({ type, x: enemy.x, y: enemy.y, life: 10, bob: Math.random() * 10 });
+  }
+
+  function collectDrop(drop) {
+    const game = state.game;
+    const player = game.player;
+    if (drop.type === "dango") {
+      player.hp = Math.min(player.maxHp, player.hp + 24);
+      addFloater("团子", player.x, player.y - 56, COLORS.green, 0.75);
+    }
+    if (drop.type === "coin") {
+      game.score += Math.round(120 * game.scoreMult);
+      addFloater("小判 +120", player.x, player.y - 56, COLORS.gold, 0.75);
+    }
+    if (drop.type === "sandal") {
+      player.speedBuff = 4.5;
+      addFloater("草鞋", player.x, player.y - 56, COLORS.blue, 0.75);
+    }
+    if (drop.type === "guard") {
+      player.shields += 1;
+      addFloater("御守", player.x, player.y - 56, COLORS.blue, 0.75);
+    }
+    if (drop.type === "rebel") {
+      game.rebelLevel += 1;
+      addFloater("反骨", player.x, player.y - 56, COLORS.red, 0.75);
+    }
+  }
+
+  function weightedPick(items) {
+    const sum = items.reduce((total, item) => total + item.weight, 0);
+    let roll = Math.random() * sum;
+    for (const item of items) {
+      roll -= item.weight;
+      if (roll <= 0) return item.type;
+    }
+    return items[0].type;
+  }
+
+  function dashPlayer() {
+    const game = state.game;
+    if (!game || state.scene !== "playing") return;
+    const player = game.player;
+    if (player.dashCooldown > 0) return;
+    player.dashTime = 0.18;
+    player.dashCooldown = 1.05;
+    player.invuln = Math.max(player.invuln, 0.2);
+    addEffect("dust", player.x - player.dirX * 18, player.y - 10, COLORS.muted);
+  }
+
+  function beginUpgrade() {
+    const game = state.game;
+    if (game.elapsed >= game.duration) {
+      finishGame("time");
+      return;
+    }
+    state.scene = "upgrade";
+    game.pendingUpgrades = pickUpgrades();
+  }
+
+  function pickUpgrades() {
+    const pool = [...upgradePool];
+    const picks = [];
+    while (picks.length < 3 && pool.length > 0) {
+      const index = Math.floor(Math.random() * pool.length);
+      picks.push(pool.splice(index, 1)[0]);
+    }
+    return picks;
+  }
+
+  function chooseUpgrade(index) {
+    const game = state.game;
+    if (!game || state.scene !== "upgrade") return;
+    const upgrade = game.pendingUpgrades[index];
+    if (!upgrade) return;
+    upgrade.apply(game);
+    addFloater(upgrade.name, WIDTH / 2, 122, COLORS.red, 1);
+    spawnWave();
+    state.scene = "playing";
+    lastTime = performance.now();
+  }
+
+  function finishGame(reason) {
+    const game = state.game;
+    if (!game || game.resultSaved) return;
+    game.reason = reason;
+    game.resultSaved = true;
+    const result = makeResult(game);
+    saveRanking(result.entry);
+    result.rank = getCombinedRankings().findIndex((item) => item.createdAt === result.entry.createdAt) + 1;
+    state.result = result;
+    state.scene = "result";
+  }
+
+  function makeResult(game) {
+    const score = Math.round(game.score);
+    const bestRank = RANKS[game.bestDefeatRank - 1];
+    const title = deriveTitle(game, score);
+    const entry = {
+      name: `${game.role.name}玩家-${String(Math.floor(Math.random() * 900) + 100)}`,
+      score,
+      title,
+      bestDefeatRank: bestRank.name,
+      createdAt: new Date().toISOString(),
+    };
+    return {
+      entry,
+      score,
+      title,
+      bestRank,
+      highestMultiplier: game.highestMultiplier,
+      kills: game.kills,
+      reason: game.reason,
+      rank: 0,
+    };
+  }
+
+  function deriveTitle(game, score) {
+    if (game.reason === "lose" && score < 800) return "下克上失败";
+    if (game.bestDefeatRank >= 5 && game.role.rank <= 2) return "传说下克上";
+    if (score >= 5600) return "天下级";
+    if (game.bestDefeatRank >= 4) return "大名克星";
+    if (game.highestMultiplier >= 2.2) return "反骨达人";
+    if (score >= 2200) return "御前新星";
+    return "一揆见习";
+  }
+
+  function getLocalRankings() {
+    try {
+      const parsed = JSON.parse(localStorage.getItem(RANKING_KEY) || "[]");
+      return Array.isArray(parsed) ? parsed.filter((item) => Number.isFinite(item.score)) : [];
+    } catch {
+      return [];
+    }
+  }
+
+  function saveRanking(entry) {
+    const local = getLocalRankings();
+    local.push(entry);
+    local.sort((a, b) => b.score - a.score);
+    localStorage.setItem(RANKING_KEY, JSON.stringify(local.slice(0, 30)));
+  }
+
+  function getCombinedRankings() {
+    return [...FAKE_RANKINGS, ...getLocalRankings()].sort((a, b) => b.score - a.score).slice(0, 10);
+  }
+
+  function addFloater(text, x, y, color = COLORS.ink, life = 0.7) {
+    state.game.floaters.push({ text, x, y, color, life, maxLife: life });
+  }
+
+  function addEffect(type, x, y, color = COLORS.red, angle = 0) {
+    const life = type === "burst" ? 0.48 : type === "slash" || type === "swing" ? 0.7 : 0.32;
+    state.game.effects.push({ type, x, y, color, angle, age: 0, life });
+  }
+
+  function draw() {
+    ctx.clearRect(0, 0, WIDTH, HEIGHT);
+    state.buttons = [];
+    if (state.scene === "loading") drawLoading();
+    if (state.scene === "error") drawError();
+    if (state.scene === "start") drawStart();
+    if (state.scene === "select") drawSelect();
+    if (state.scene === "playing") drawPlaying();
+    if (state.scene === "upgrade") {
+      drawPlaying();
+      drawUpgrade();
+    }
+    if (state.scene === "result") drawResult();
+    if (state.scene === "ranking") drawRanking();
+  }
+
+  function drawLoading() {
+    drawSoftBackground();
+    drawText("読み込み中", WIDTH / 2, HEIGHT / 2, 34, COLORS.ink, "center", "bold");
+  }
+
+  function drawError() {
+    drawSoftBackground();
+    drawText("素材加载失败", WIDTH / 2, HEIGHT / 2 - 22, 34, COLORS.red, "center", "bold");
+    drawText(state.loadError, WIDTH / 2, HEIGHT / 2 + 24, 20, COLORS.ink, "center");
+  }
+
+  function drawSoftBackground(showEdo = false) {
+    const sky = ctx.createLinearGradient(0, 0, 0, HEIGHT);
+    sky.addColorStop(0, "#d9eef3");
+    sky.addColorStop(0.52, "#fff4dd");
+    sky.addColorStop(1, "#f7dccf");
+    ctx.fillStyle = sky;
+    ctx.fillRect(0, 0, WIDTH, HEIGHT);
+    ctx.fillStyle = "rgba(141,181,198,0.38)";
+    drawHill(470, 188, 380, 115);
+    drawHill(705, 184, 360, 120);
+    if (showEdo) {
+      drawEdoSkyline();
+    }
+    ctx.fillStyle = "#e8d7c9";
+    ctx.fillRect(0, 168, WIDTH, HEIGHT - 168);
+    ctx.fillStyle = "rgba(255,250,240,0.46)";
+    ctx.fillRect(0, 160, WIDTH, 20);
+    drawGroundMarks();
+  }
+
+  function drawWorldBackground() {
+    if (state.images.battleBackground) {
+      drawBattleBackground();
+      return;
+    }
+    drawSoftBackground(true);
+    drawBridge();
+    drawStonePath();
+    drawEdoStreetProps();
+    drawImageAsset("house", 88, 46, 0.66);
+    drawImageAsset("tree", 46, 56, 0.62);
+    drawImageAsset("tree", WIDTH - 200, 54, 0.58);
+    drawImageAsset("bush", 283, 143, 0.52);
+    drawImageAsset("sign", WIDTH - 245, 214, 0.56);
+    drawImageAsset("fence", WIDTH - 305, 294, 0.58);
+  }
+
+  function drawBattleBackground() {
+    const image = state.images.battleBackground;
+    const targetRatio = WIDTH / HEIGHT;
+    const sourceRatio = image.width / image.height;
+    let sx = 0;
+    let sy = 0;
+    let sw = image.width;
+    let sh = image.height;
+
+    if (sourceRatio > targetRatio) {
+      sw = image.height * targetRatio;
+      sx = (image.width - sw) / 2;
+    } else if (sourceRatio < targetRatio) {
+      sh = image.width / targetRatio;
+      sy = (image.height - sh) / 2;
+    }
+
+    ctx.drawImage(image, sx, sy, sw, sh, 0, 0, WIDTH, HEIGHT);
+  }
+
+  function drawEdoSkyline() {
+    ctx.save();
+    ctx.globalAlpha = 0.2;
+    drawCastleTower(846, 72, 0.66);
+    drawCastleTower(702, 104, 0.38);
+    drawPagoda(235, 103, 0.42);
+    drawRoofRow(88, 139, 300, 0.42);
+    drawRoofRow(792, 141, 260, 0.38);
+    ctx.restore();
+  }
+
+  function drawCastleTower(x, y, scale) {
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.scale(scale, scale);
+    ctx.fillStyle = "#aac6cf";
+    ctx.strokeStyle = "rgba(67,54,56,0.2)";
+    ctx.lineWidth = 3;
+    for (let i = 0; i < 3; i += 1) {
+      const w = 156 - i * 34;
+      const h = 35;
+      const yy = i * 38;
+      ctx.fillRect(-w / 2, yy, w, h);
+      ctx.strokeRect(-w / 2, yy, w, h);
+      drawEdoRoof(-w / 2 - 20, yy - 12, w + 40, 25, "#7ea7b5");
+    }
+    ctx.restore();
+  }
+
+  function drawPagoda(x, y, scale) {
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.scale(scale, scale);
+    ctx.fillStyle = "#b9cfd4";
+    for (let i = 0; i < 4; i += 1) {
+      const w = 118 - i * 18;
+      const yy = i * 26;
+      ctx.fillRect(-w / 2, yy, w, 20);
+      drawEdoRoof(-w / 2 - 16, yy - 10, w + 32, 18, "#87acb8");
+    }
+    ctx.restore();
+  }
+
+  function drawRoofRow(x, y, width, scale) {
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.scale(scale, scale);
+    for (let i = 0; i < 5; i += 1) {
+      const rx = i * 72;
+      ctx.fillStyle = "rgba(185,145,116,0.42)";
+      ctx.fillRect(rx, 12, 62, 24);
+      drawEdoRoof(rx - 8, 0, 78, 20, "rgba(114,142,148,0.66)");
+    }
+    ctx.restore();
+  }
+
+  function drawEdoRoof(x, y, w, h, color) {
+    ctx.save();
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    ctx.moveTo(x, y + h);
+    ctx.quadraticCurveTo(x + w * 0.5, y - h * 0.6, x + w, y + h);
+    ctx.lineTo(x + w - 10, y + h + 7);
+    ctx.lineTo(x + 10, y + h + 7);
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
+  }
+
+  function drawEdoStreetProps() {
+    ctx.save();
+    ctx.globalAlpha = 0.64;
+    drawTorii(1062, 232, 0.56);
+    drawMarketStall(900, 222, 0.48);
+    drawMarketStall(310, 232, 0.42);
+    drawNobori(958, 214, "下剋", "#b95145");
+    drawNobori(1004, 224, "番付", "#5d8aa1");
+    drawNobori(188, 222, "一揆", "#8aa879");
+    drawLanternString(500, 184, 770, 174);
+    drawLantern(576, 178, 0.36, "祭");
+    drawLantern(636, 176, 0.34, "小");
+    drawLantern(696, 176, 0.35, "判");
+    ctx.restore();
+  }
+
+  function drawTorii(x, y, scale) {
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.scale(scale, scale);
+    ctx.strokeStyle = "rgba(96,56,52,0.18)";
+    ctx.lineWidth = 10;
+    ctx.lineCap = "round";
+    ctx.beginPath();
+    ctx.moveTo(-68, -54);
+    ctx.lineTo(68, -54);
+    ctx.moveTo(-52, -35);
+    ctx.lineTo(52, -35);
+    ctx.moveTo(-43, -35);
+    ctx.lineTo(-43, 48);
+    ctx.moveTo(43, -35);
+    ctx.lineTo(43, 48);
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  function drawMarketStall(x, y, scale) {
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.scale(scale, scale);
+    ctx.fillStyle = "rgba(255,248,226,0.34)";
+    ctx.fillRect(-58, -6, 116, 58);
+    drawEdoRoof(-72, -32, 144, 32, "rgba(185,77,69,0.34)");
+    ctx.fillStyle = "rgba(255,255,255,0.34)";
+    for (let i = 0; i < 4; i += 1) {
+      ctx.fillRect(-50 + i * 25, -6, 12, 24);
+    }
+    ctx.restore();
+  }
+
+  function drawNobori(x, y, text, color) {
+    ctx.save();
+    ctx.strokeStyle = "rgba(67,54,56,0.24)";
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.moveTo(x, y - 42);
+    ctx.lineTo(x, y + 56);
+    ctx.stroke();
+    ctx.fillStyle = color;
+    ctx.globalAlpha = 0.36;
+    roundRect(x + 4, y - 40, 36, 74, 4);
+    ctx.fill();
+    ctx.globalAlpha = 0.55;
+    drawText(text, x + 22, y - 2, 15, "#fffaf0", "center", "bold");
+    ctx.restore();
+  }
+
+  function drawLanternString(x1, y1, x2, y2) {
+    ctx.save();
+    ctx.strokeStyle = "rgba(67,54,56,0.16)";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(x1, y1);
+    ctx.quadraticCurveTo((x1 + x2) / 2, Math.max(y1, y2) + 26, x2, y2);
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  function drawLantern(x, y, scale, text) {
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.scale(scale, scale);
+    ctx.fillStyle = "rgba(246,210,120,0.58)";
+    ctx.strokeStyle = "rgba(128,75,58,0.28)";
+    ctx.lineWidth = 4;
+    ctx.beginPath();
+    ctx.ellipse(0, 0, 22, 31, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+    ctx.strokeStyle = "rgba(128,75,58,0.28)";
+    ctx.lineWidth = 2;
+    for (let i = -1; i <= 1; i += 1) {
+      ctx.beginPath();
+      ctx.moveTo(i * 9, -27);
+      ctx.lineTo(i * 9, 27);
+      ctx.stroke();
+    }
+    drawText(text, 0, 3, 18, "#8c4f45", "center", "bold");
+    ctx.restore();
+  }
+
+  function drawStonePath() {
+    ctx.save();
+    ctx.fillStyle = "rgba(255,245,226,0.14)";
+    for (let i = 0; i < 14; i += 1) {
+      const x = 92 + (i * 86) % 960;
+      const y = 386 + ((i * 43) % 92);
+      roundRect(x, y, 44 + (i % 3) * 11, 22, 7);
+      ctx.fill();
+    }
+    ctx.restore();
+  }
+
+  function drawHill(x, y, w, h) {
+    ctx.beginPath();
+    ctx.ellipse(x, y, w, h, 0, Math.PI, 0);
+    ctx.fill();
+  }
+
+  function drawGroundMarks() {
+    ctx.save();
+    ctx.strokeStyle = "rgba(103,72,69,0.18)";
+    ctx.lineWidth = 3;
+    ctx.lineCap = "round";
+    for (let i = 0; i < 46; i += 1) {
+      const x = (i * 157) % WIDTH;
+      const y = 185 + ((i * 79) % 325);
+      ctx.beginPath();
+      ctx.moveTo(x, y);
+      ctx.lineTo(x + 10, y + (i % 2) * 3);
+      ctx.moveTo(x + 18, y + 2);
+      ctx.lineTo(x + 31, y);
+      ctx.stroke();
+    }
+    ctx.strokeStyle = "rgba(114,159,89,0.25)";
+    for (let i = 0; i < 24; i += 1) {
+      const x = (i * 211 + 47) % WIDTH;
+      const y = 180 + ((i * 103) % 330);
+      ctx.beginPath();
+      ctx.moveTo(x, y);
+      ctx.lineTo(x + 4, y - 9);
+      ctx.moveTo(x + 8, y);
+      ctx.lineTo(x + 8, y - 11);
+      ctx.moveTo(x + 15, y);
+      ctx.lineTo(x + 12, y - 8);
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+
+  function drawBridge() {
+    ctx.save();
+    ctx.strokeStyle = "rgba(160,96,90,0.13)";
+    ctx.lineWidth = 12;
+    ctx.beginPath();
+    ctx.arc(WIDTH * 0.64, 320, 210, Math.PI * 1.05, Math.PI * 1.94);
+    ctx.stroke();
+    ctx.strokeStyle = "rgba(160,96,90,0.09)";
+    ctx.lineWidth = 4;
+    for (let i = 0; i < 8; i += 1) {
+      const x = WIDTH * 0.47 + i * 48;
+      ctx.beginPath();
+      ctx.moveTo(x, 222);
+      ctx.lineTo(x, 258);
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+
+  function drawStart() {
+    drawSoftBackground();
+    drawImageAsset("house", WIDTH / 2 + 220, 238, 0.42);
+    drawImageAsset("tree", 120, 230, 0.52);
+    drawImageAsset("tree", WIDTH - 260, 218, 0.48);
+    drawText("下克上御前乱斗", WIDTH / 2, 76, 50, COLORS.ink, "center", "bold");
+    drawText("下剋上オンライン", WIDTH / 2, 121, 28, COLORS.red, "center", "bold");
+    drawPaperPanel(WIDTH / 2 - 300, 158, 600, 112);
+    drawText("一揆に参加する？", WIDTH / 2, 226, 44, COLORS.ink, "center", "bold");
+    drawRoleSprite(ROLES[0], "front", 0, WIDTH / 2, 378, 0.45, false);
+    drawButton(390, 396, 152, 66, "はい", "参戦", () => {
+      state.scene = "select";
+    });
+    drawButton(636, 396, 152, 66, "いいえ", "番付", () => {
+      state.scene = "ranking";
+    }, "quiet");
+  }
+
+  function drawSelect() {
+    drawSoftBackground();
+    drawText("角色选择", WIDTH / 2, 62, 40, COLORS.ink, "center", "bold");
+    drawText("身分を選べ", WIDTH / 2, 101, 22, COLORS.red, "center", "bold");
+    ROLES.forEach((role, index) => {
+      const x = 158 + index * 306;
+      const y = 142;
+      const selected = state.selectedRole === index;
+      drawCard(x, y, 250, 276, "#fff8ec", selected, role.color);
+      if (selected) {
+        drawSelectedCorner(x, y, role.color);
+      }
+      drawText(role.name, x + 125, y + 44, 31, COLORS.ink, "center", "bold");
+      drawText(role.jp, x + 125, y + 78, 20, COLORS.red, "center", "bold");
+      drawRoleSprite(role, "attack", 4, x + 125, y + 195, 0.39, false);
+      drawText(role.title, x + 125, y + 222, 20, COLORS.ink, "center", "bold");
+      drawText(role.trait, x + 125, y + 252, 15, COLORS.muted, "center");
+      state.buttons.push({
+        x,
+        y,
+        w: 250,
+        h: 276,
+        onClick: () => {
+          state.selectedRole = index;
+        },
+      });
+    });
+    drawButton(WIDTH / 2 - 126, 446, 252, 62, "出阵", ROLES[state.selectedRole].name, () => {
+      createGame(state.selectedRole);
+    });
+    drawButton(46, 450, 142, 54, "戻る", "标题", () => {
+      state.scene = "start";
+    }, "quiet");
+  }
+
+  function drawPlaying() {
+    const game = state.game;
+    drawWorldBackground();
+    drawDrops();
+    drawAimGuide();
+    const actors = [...game.enemies, game.player].sort((a, b) => a.y - b.y);
+    actors.forEach((actor) => {
+      if (actor.role) drawPlayer(actor);
+      else drawEnemy(actor);
+    });
+    drawEffects();
+    drawFloaters();
+    drawHud();
+  }
+
+  function drawAimGuide() {
+    const game = state.game;
+    if (!game) return;
+    const player = game.player;
+    const range = player.role.range + game.rangeBonus + 16;
+    const tipX = player.x + player.aimX * range;
+    const tipY = player.y + player.aimY * range;
+    const angle = Math.atan2(player.aimY, player.aimX);
+    ctx.save();
+    ctx.globalAlpha = 0.9;
+    ctx.fillStyle = "rgba(185,77,69,0.12)";
+    ctx.beginPath();
+    ctx.moveTo(player.x, player.y - 18);
+    ctx.arc(player.x, player.y - 18, range, angle - 0.38, angle + 0.38);
+    ctx.closePath();
+    ctx.fill();
+    ctx.strokeStyle = "rgba(185,77,69,0.86)";
+    ctx.fillStyle = "rgba(185,77,69,0.22)";
+    ctx.lineWidth = 5;
+    ctx.setLineDash([10, 7]);
+    ctx.beginPath();
+    ctx.moveTo(player.x, player.y - 18);
+    ctx.lineTo(tipX, tipY - 18);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.beginPath();
+    ctx.arc(tipX, tipY - 18, 12, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(tipX + Math.cos(angle) * 18, tipY - 18 + Math.sin(angle) * 18);
+    ctx.lineTo(tipX + Math.cos(angle + 2.45) * 13, tipY - 18 + Math.sin(angle + 2.45) * 13);
+    ctx.lineTo(tipX + Math.cos(angle - 2.45) * 13, tipY - 18 + Math.sin(angle - 2.45) * 13);
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
+  }
+
+  function drawHud() {
+    const game = state.game;
+    const player = game.player;
+    const timeLeft = Math.max(0, Math.ceil(game.duration - game.elapsed));
+    drawTopPill(26, 20, 180, 48, `${timeLeft}`, "秒");
+    drawTopPill(224, 20, 236, 48, `${game.role.name}`, game.role.title);
+    drawTopPill(478, 20, 218, 48, `${Math.round(game.score)}`, "小判点");
+    drawTopPill(714, 20, 176, 48, `${game.highestMultiplier.toFixed(1)}x`, "最大倍率");
+    drawHealth(36, 82, 318, 18, player.hp / player.maxHp, COLORS.red);
+    if (player.shields > 0) {
+      drawText(`御守 x${player.shields}`, 382, 96, 18, COLORS.blue, "left", "bold");
+    }
+    drawAvatarBadge();
+  }
+
+  function drawTopPill(x, y, w, h, main, sub) {
+    ctx.save();
+    ctx.fillStyle = "rgba(255,249,239,0.88)";
+    roundRect(x, y, w, h, 8);
+    ctx.fill();
+    ctx.strokeStyle = "rgba(67,54,56,0.56)";
+    ctx.lineWidth = 3;
+    ctx.stroke();
+    drawText(main, x + 20, y + 29, 24, COLORS.ink, "left", "bold");
+    drawText(sub, x + w - 18, y + 31, 15, COLORS.muted, "right", "bold");
+    ctx.restore();
+  }
+
+  function drawAvatarBadge() {
+    const game = state.game;
+    const x = WIDTH - 128;
+    const y = 38;
+    ctx.save();
+    ctx.fillStyle = "rgba(255,255,255,0.78)";
+    ctx.beginPath();
+    ctx.arc(x, y + 54, 62, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = game.role.color;
+    ctx.lineWidth = 8;
+    ctx.stroke();
+    drawRoleSprite(game.role, "front", 1, x, y + 94, 0.25, false);
+    ctx.restore();
+  }
+
+  function drawUpgrade() {
+    const game = state.game;
+    ctx.save();
+    ctx.fillStyle = "rgba(58,50,54,0.5)";
+    ctx.fillRect(0, 0, WIDTH, HEIGHT);
+    drawPaperPanel(256, 78, 666, 108);
+    drawText("瓦版号外", WIDTH / 2, 120, 26, COLORS.red, "center", "bold");
+    drawText("选择一张木札", WIDTH / 2, 158, 38, COLORS.ink, "center", "bold");
+    game.pendingUpgrades.forEach((upgrade, index) => {
+      const x = 222 + index * 258;
+      drawCard(x, 230, 218, 178, "#fff8ec", false);
+      drawText(`${index + 1}`, x + 28, 264, 22, COLORS.gold, "center", "bold");
+      drawText(upgrade.name, x + 109, 300, 27, COLORS.ink, "center", "bold");
+      drawText(upgrade.desc, x + 109, 338, 18, COLORS.muted, "center");
+      drawButton(x + 47, 363, 124, 42, "取る", "木札", () => chooseUpgrade(index));
+    });
+    ctx.restore();
+  }
+
+  function drawResult() {
+    const result = state.result;
+    drawSoftBackground();
+    const success = result.reason !== "lose";
+    if (!success) {
+      ctx.save();
+      ctx.fillStyle = "rgba(70,66,69,0.64)";
+      ctx.fillRect(0, 0, WIDTH, HEIGHT);
+      ctx.restore();
+    }
+    const headline = success ? "你的排名" : "下克上失败";
+    drawText(headline, WIDTH / 2, 70, 35, success ? COLORS.ink : "#ffffff", "center", "bold");
+    drawText(`第 ${result.rank} 位`, WIDTH / 2, 152, 68, COLORS.gold, "center", "bold");
+    drawText(result.title, WIDTH / 2, 208, 34, COLORS.red, "center", "bold");
+    drawPaperPanel(286, 248, 606, 138);
+    drawText(`小判点 ${result.score}`, 372, 292, 25, COLORS.ink, "left", "bold");
+    drawText(`击破 ${result.bestRank.name}`, 372, 329, 22, COLORS.ink, "left");
+    drawText(`最大倍率 ${result.highestMultiplier.toFixed(1)}x`, 626, 292, 22, COLORS.ink, "left");
+    drawText(`击破数 ${result.kills}`, 626, 329, 22, COLORS.ink, "left");
+    drawButton(336, 424, 160, 58, "再战", "一局", () => {
+      state.scene = "select";
+    });
+    drawButton(510, 424, 160, 58, "番付", "排行", () => {
+      state.scene = "ranking";
+    }, "quiet");
+    drawButton(684, 424, 160, 58, "标题", "戻る", () => {
+      state.scene = "start";
+    }, "quiet");
+  }
+
+  function drawRanking() {
+    drawSoftBackground();
+    drawText("御前番付表", WIDTH / 2, 66, 44, COLORS.ink, "center", "bold");
+    drawText("オンライン風 本地番付", WIDTH / 2, 103, 20, COLORS.red, "center", "bold");
+    drawPaperPanel(264, 126, 650, 304);
+    const rows = getCombinedRankings();
+    rows.forEach((row, index) => {
+      const y = 166 + index * 27;
+      const current = state.result && row.createdAt === state.result.entry.createdAt;
+      ctx.fillStyle = current ? "rgba(230,189,78,0.26)" : index % 2 ? "rgba(255,255,255,0.36)" : "rgba(143,189,212,0.12)";
+      roundRect(292, y - 19, 592, 24, 5);
+      ctx.fill();
+      drawText(`${index + 1}`, 316, y, 17, current ? COLORS.red : COLORS.ink, "center", "bold");
+      drawText(row.name, 354, y, 17, COLORS.ink, "left", current ? "bold" : "normal");
+      drawText(row.title, 560, y, 16, COLORS.muted, "left");
+      drawText(`${row.score}`, 846, y, 17, COLORS.ink, "right", "bold");
+    });
+    drawButton(384, 456, 164, 56, "出阵", "新局", () => {
+      state.scene = "select";
+    });
+    drawButton(628, 456, 164, 56, "标题", "戻る", () => {
+      state.scene = "start";
+    }, "quiet");
+  }
+
+  function drawPlayer(player) {
+    const frame = chooseActorFrame(player);
+    const characterFrame = chooseCharacterFrame(player);
+    const flip = chooseActorFlip(player);
+    drawShadow(player.x, player.y, player.radius + 10, "rgba(58,48,50,0.18)");
+    const flicker = player.invuln > 0 && Math.floor(performance.now() / 80) % 2 === 0;
+    if (player.attackTimer > 0 && getActorFacing(player).y < -0.42) {
+      drawDirectionalAttack(player, 1, COLORS.red);
+    }
+    if (!flicker) {
+      if (characterFrame) drawCharacterFrame(characterFrame, player.x, player.y + 18, 0.38, flip);
+      else drawSprite(player.row, frame, player.x, player.y + 19, 0.39, flip);
+    }
+    if (player.attackTimer > 0 && getActorFacing(player).y >= -0.42) {
+      drawDirectionalAttack(player, 1, COLORS.red);
+    }
+    drawRankTag(player.x, player.y - 74, player.role.name, player.role.color);
+  }
+
+  function drawEnemy(enemy) {
+    const frame = chooseActorFrame(enemy);
+    const enemyFrame = chooseEnemySpriteFrame(enemy);
+    const flip = chooseActorFlip(enemy);
+    drawShadow(enemy.x, enemy.y, enemy.radius + 8, "rgba(58,48,50,0.16)");
+    if (enemy.attackTimer > 0 && getActorFacing(enemy).y < -0.42) {
+      drawDirectionalAttack(enemy, 0.82, enemy.rankInfo.color);
+    }
+    if (enemyFrame) drawCharacterFrame(enemyFrame, enemy.x, enemy.y + 18, 0.29 + enemy.rank * 0.024, flip);
+    else drawSprite(enemy.row, frame, enemy.x, enemy.y + 17, 0.31 + enemy.rank * 0.025, flip);
+    if (enemy.attackTimer > 0 && getActorFacing(enemy).y >= -0.42) {
+      drawDirectionalAttack(enemy, 0.82, enemy.rankInfo.color);
+    }
+    drawEnemyCrown(enemy);
+    drawHealth(enemy.x - 34, enemy.y - 64, 68, 7, enemy.hp / enemy.maxHp, enemy.rankInfo.color);
+    drawRankTag(enemy.x, enemy.y - 76, enemy.rankInfo.name, enemy.rankInfo.color, 0.82);
+  }
+
+  function chooseActorFrame(actor) {
+    if (actor.hurt > 0) return "hurt";
+    if (actor.attackTimer > 0) return chooseAttackFrame(actor);
+    return chooseMovementFrame(getActorFacing(actor));
+  }
+
+  function chooseAttackFrame(actor) {
+    const facing = getActorFacing(actor);
+    return chooseMovementFrame(facing);
+  }
+
+  function chooseEnemySpriteFrame(enemy) {
+    const spriteSet = state.enemySprites[enemy.rankInfo.spriteKey];
+    if (!spriteSet) return null;
+    if (enemy.hurt > 0) return pickCharacterFrame(spriteSet.emote, enemy.hurt, 0.08);
+    if (enemy.attackTimer > 0) {
+      const duration = enemy.attackDuration || 0.32;
+      const progress = clamp(1 - enemy.attackTimer / duration, 0, 0.999);
+      return spriteSet.attack[Math.floor(progress * spriteSet.attack.length)] || spriteSet.attack[0];
+    }
+    const facing = getActorFacing(enemy);
+    if (Math.abs(facing.y) > 0.65 && facing.y < 0) return pickCharacterFrame(spriteSet.back, performance.now(), 110);
+    if (enemy.moving && Math.abs(facing.x) > 0.12) return pickCharacterFrame(spriteSet.side, performance.now(), 100);
+    return pickCharacterFrame(spriteSet.front, performance.now(), enemy.moving ? 110 : 190);
+  }
+
+  function chooseCharacterFrame(actor) {
+    const spriteSet = actor.role ? state.characterSprites[actor.role.spriteKey] : null;
+    if (!spriteSet) return null;
+    if (actor.hurt > 0) return pickCharacterFrame(spriteSet.emote, actor.hurt, 0.08);
+    if (actor.attackTimer > 0) {
+      const duration = actor.attackDuration || 0.32;
+      const progress = clamp(1 - actor.attackTimer / duration, 0, 0.999);
+      return spriteSet.attack[Math.floor(progress * spriteSet.attack.length)] || spriteSet.attack[0];
+    }
+    const facing = getActorFacing(actor);
+    if (Math.abs(facing.y) > 0.65 && facing.y < 0) return pickCharacterFrame(spriteSet.back, performance.now(), 95);
+    if (actor.moving && Math.abs(facing.x) > 0.12) return pickCharacterFrame(spriteSet.side, performance.now(), 85);
+    return pickCharacterFrame(spriteSet.front, performance.now(), actor.moving ? 95 : 180);
+  }
+
+  function pickCharacterFrame(frames, time, frameMs) {
+    if (!frames || frames.length === 0) return null;
+    return frames[Math.floor(time / frameMs) % frames.length];
+  }
+
+  function chooseMovementFrame(facing) {
+    if (Math.abs(facing.y) > 0.65 && facing.y < 0) return "back";
+    if (Math.abs(facing.x) > 0.25) return "side";
+    return "front";
+  }
+
+  function chooseActorFlip(actor) {
+    return getActorFacing(actor).x < -0.12;
+  }
+
+  function drawDirectionalAttack(actor, scale, color) {
+    const facing = getActorFacing(actor);
+    const duration = actor.attackDuration || 0.32;
+    const progress = clamp(1 - actor.attackTimer / duration, 0, 1);
+    const eased = 1 - Math.pow(1 - progress, 2);
+    const baseAngle = Math.atan2(facing.y, facing.x);
+    const sweep = -0.72 + eased * 1.44;
+    const weaponAngle = baseAngle + sweep;
+    const originX = actor.x + facing.x * 10;
+    const originY = actor.y - 26 + facing.y * 7;
+    const weaponLength = 58 * scale;
+    const handleLength = 14 * scale;
+    const arcRadius = 48 * scale;
+
+    ctx.save();
+    ctx.translate(originX, originY);
+    ctx.rotate(weaponAngle);
+    ctx.lineCap = "round";
+    ctx.lineJoin = "round";
+
+    ctx.strokeStyle = "rgba(67,54,56,0.32)";
+    ctx.lineWidth = 11 * scale;
+    ctx.beginPath();
+    ctx.moveTo(-handleLength, 0);
+    ctx.lineTo(weaponLength, 0);
+    ctx.stroke();
+
+    ctx.strokeStyle = "#6b4a3d";
+    ctx.lineWidth = 7 * scale;
+    ctx.beginPath();
+    ctx.moveTo(-handleLength, 0);
+    ctx.lineTo(weaponLength, 0);
+    ctx.stroke();
+
+    ctx.strokeStyle = "#f4dfbf";
+    ctx.lineWidth = 3 * scale;
+    ctx.beginPath();
+    ctx.moveTo(4 * scale, -2 * scale);
+    ctx.lineTo(weaponLength - 5 * scale, -2 * scale);
+    ctx.stroke();
+    ctx.restore();
+
+    ctx.save();
+    ctx.translate(actor.x + facing.x * 28, actor.y - 28 + facing.y * 18);
+    ctx.rotate(baseAngle);
+    ctx.globalAlpha = Math.max(0.18, 1 - progress * 0.55);
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 7 * scale;
+    ctx.lineCap = "round";
+    ctx.beginPath();
+    ctx.arc(0, 0, arcRadius + progress * 18 * scale, -0.82 + sweep * 0.35, 0.82 + sweep * 0.35);
+    ctx.stroke();
+    ctx.strokeStyle = "rgba(255,255,255,0.82)";
+    ctx.lineWidth = 3 * scale;
+    ctx.beginPath();
+    ctx.arc(0, 0, arcRadius + 5 * scale + progress * 16 * scale, -0.7 + sweep * 0.35, 0.7 + sweep * 0.35);
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  function getActorFacing(actor) {
+    if (actor.attackTimer > 0 && Number.isFinite(actor.attackDirX) && Number.isFinite(actor.attackDirY)) {
+      return { x: actor.attackDirX, y: actor.attackDirY };
+    }
+    if (actor.role) {
+      return { x: actor.aimX || actor.dirX || 1, y: actor.aimY || actor.dirY || 0 };
+    }
+    return { x: actor.dirX || 1, y: actor.dirY || 0 };
+  }
+
+  function drawEnemyCrown(enemy) {
+    if (enemy.rank < 4) return;
+    ctx.save();
+    ctx.translate(enemy.x, enemy.y - 91);
+    ctx.fillStyle = enemy.rank === 5 ? COLORS.gold : COLORS.red;
+    ctx.strokeStyle = COLORS.ink;
+    ctx.lineWidth = 2;
+    if (enemy.rank === 5) {
+      ctx.beginPath();
+      ctx.moveTo(-18, 14);
+      ctx.lineTo(-10, -9);
+      ctx.lineTo(0, 8);
+      ctx.lineTo(11, -12);
+      ctx.lineTo(18, 14);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+    } else {
+      roundRect(-18, -7, 36, 22, 4);
+      ctx.fill();
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+
+  function drawDrops() {
+    const game = state.game;
+    for (const drop of game.drops) {
+      const y = drop.y + Math.sin(drop.bob) * 4;
+      drawShadow(drop.x, y + 12, 16, "rgba(58,48,50,0.14)");
+      ctx.save();
+      if (drop.type === "dango") {
+        drawImageAsset("heart", drop.x - 16, y - 17, 0.42);
+      } else if (drop.type === "coin") {
+        drawImageAsset("coin", drop.x - 16, y - 18, 0.44);
+      } else {
+        ctx.fillStyle = drop.type === "rebel" ? COLORS.red : drop.type === "guard" ? COLORS.blue : COLORS.gold;
+        ctx.strokeStyle = COLORS.ink;
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.arc(drop.x, y, 15, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+        const label = drop.type === "sandal" ? "草" : drop.type === "guard" ? "守" : "反";
+        drawText(label, drop.x, y + 6, 15, "#ffffff", "center", "bold");
+      }
+      ctx.restore();
+    }
+  }
+
+  function drawEffects() {
+    const game = state.game;
+    for (const effect of game.effects) {
+      const progress = effect.age / (effect.age + effect.life);
+      ctx.save();
+      ctx.globalAlpha = Math.max(0, 1 - progress);
+      ctx.translate(effect.x, effect.y);
+      ctx.rotate(effect.angle || 0);
+      if (effect.type === "slash" || effect.type === "swing") {
+        ctx.strokeStyle = effect.type === "slash" ? effect.color : "rgba(67,54,56,0.56)";
+        ctx.lineWidth = effect.type === "slash" ? 9 : 5;
+        ctx.beginPath();
+        ctx.arc(0, 0, 46 + progress * 12, -0.8, 0.7);
+      ctx.stroke();
+    }
+    if (effect.type === "hit") {
+      ctx.fillStyle = effect.color;
+      star(0, 0, 9 + progress * 18, 5);
+    }
+    if (effect.type === "slash" && state.sheet.slash) {
+      ctx.rotate(0.1);
+      const scale = 0.58 + progress * 0.12;
+      drawFrame(state.sheet.slash, 8, -52 * scale, 118 * scale, 74 * scale);
+    }
+    if (effect.type === "burst") {
+      ctx.strokeStyle = effect.color;
+      ctx.lineWidth = 4;
+        for (let i = 0; i < 8; i += 1) {
+          const angle = (Math.PI * 2 * i) / 8;
+          ctx.beginPath();
+          ctx.moveTo(Math.cos(angle) * 8, Math.sin(angle) * 8);
+          ctx.lineTo(Math.cos(angle) * (24 + progress * 28), Math.sin(angle) * (24 + progress * 28));
+          ctx.stroke();
+        }
+      }
+      if (effect.type === "dust") {
+        drawImageAsset("dust", -34, -28, 0.7);
+      }
+      ctx.restore();
+    }
+  }
+
+  function drawFloaters() {
+    const game = state.game;
+    game.floaters.forEach((floater) => {
+      const alpha = clamp(floater.life / floater.maxLife, 0, 1);
+      ctx.save();
+      ctx.globalAlpha = alpha;
+      drawText(floater.text, floater.x, floater.y, 19, floater.color, "center", "bold");
+      ctx.restore();
+    });
+  }
+
+  function drawSprite(row, frame, x, y, scale, flip) {
+    const image = state.sprites[row][frame] || state.sprites[row].front;
+    const w = image.width * scale;
+    const h = image.height * scale;
+    ctx.save();
+    ctx.translate(x, y);
+    if (flip) ctx.scale(-1, 1);
+    drawFrame(image, -w / 2, -h, w, h);
+    ctx.restore();
+  }
+
+  function drawRoleSprite(role, animation, frameIndex, x, y, scale, flip) {
+    const spriteSet = state.characterSprites[role.spriteKey];
+    const frames = spriteSet && spriteSet[animation];
+    const frame = frames && frames[frameIndex % frames.length];
+    if (frame) {
+      drawCharacterFrame(frame, x, y, scale, flip);
+      return;
+    }
+    drawSprite(role.row, animation === "attack" ? "weapon" : "front", x, y, scale, flip);
+  }
+
+  function drawCharacterFrame(frame, x, y, scale, flip) {
+    const w = frame.width * scale;
+    const h = frame.height * scale;
+    ctx.save();
+    ctx.translate(x, y);
+    if (flip) ctx.scale(-1, 1);
+    drawFrame(frame, -w / 2, -h, w, h);
+    ctx.restore();
+  }
+
+  function drawImageAsset(name, x, y, scale = 1) {
+    const image = state.sheet[name];
+    if (!image) return;
+    drawFrame(image, x, y, image.width * scale, image.height * scale);
+  }
+
+  function drawFrame(frame, x, y, w, h) {
+    ctx.save();
+    if (frame.raw) {
+      ctx.globalCompositeOperation = "multiply";
+    }
+    ctx.drawImage(frame.image, frame.sx, frame.sy, frame.sw, frame.sh, x, y, w, h);
+    ctx.restore();
+  }
+
+  function drawHealth(x, y, w, h, ratio, color) {
+    ctx.save();
+    ctx.fillStyle = "rgba(255,255,255,0.7)";
+    roundRect(x, y, w, h, h / 2);
+    ctx.fill();
+    ctx.strokeStyle = "rgba(67,54,56,0.48)";
+    ctx.lineWidth = 2;
+    ctx.stroke();
+    ctx.fillStyle = color;
+    roundRect(x + 3, y + 3, Math.max(0, (w - 6) * clamp(ratio, 0, 1)), h - 6, h / 2);
+    ctx.fill();
+    ctx.restore();
+  }
+
+  function drawRankTag(x, y, text, color, alpha = 1) {
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.fillStyle = "rgba(255,248,235,0.9)";
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 3;
+    roundRect(x - 34, y - 18, 68, 28, 8);
+    ctx.fill();
+    ctx.stroke();
+    drawText(text, x, y + 1, 16, COLORS.ink, "center", "bold");
+    ctx.restore();
+  }
+
+  function drawShadow(x, y, radius, color) {
+    ctx.save();
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    ctx.ellipse(x, y + 10, radius, radius * 0.34, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
+
+  function drawButton(x, y, w, h, label, sub, onClick, variant = "primary") {
+    const pointerInside = pointInRect(state.pointer, { x, y, w, h });
+    ctx.save();
+    ctx.fillStyle = variant === "primary" ? (pointerInside ? "#fff3b8" : "#fff7df") : pointerInside ? "#eaf4f2" : "#fffaf4";
+    ctx.strokeStyle = variant === "primary" ? COLORS.red : "rgba(67,54,56,0.62)";
+    ctx.lineWidth = variant === "primary" ? 4 : 3;
+    roundRect(x, y, w, h, 8);
+    ctx.fill();
+    ctx.stroke();
+    drawText(label, x + w / 2, y + h / 2 - 2, 25, COLORS.ink, "center", "bold");
+    if (sub) drawText(sub, x + w / 2, y + h - 9, 12, COLORS.muted, "center", "bold");
+    ctx.restore();
+    state.buttons.push({ x, y, w, h, onClick });
+  }
+
+  function drawCard(x, y, w, h, fill, selected, accent = COLORS.red) {
+    ctx.save();
+    ctx.fillStyle = fill;
+    roundRect(x, y, w, h, 8);
+    ctx.fill();
+    if (selected) {
+      ctx.fillStyle = withAlpha(accent, 0.1);
+      roundRect(x + 10, y + 10, w - 20, h - 20, 6);
+      ctx.fill();
+    }
+    ctx.strokeStyle = selected ? accent : "rgba(67,54,56,0.52)";
+    ctx.lineWidth = selected ? 5 : 3;
+    ctx.stroke();
+    ctx.fillStyle = "rgba(255,255,255,0.22)";
+    roundRect(x + 10, y + 10, w - 20, h - 20, 6);
+    ctx.strokeStyle = "rgba(255,255,255,0.42)";
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  function drawSelectedCorner(x, y, color) {
+    ctx.save();
+    ctx.fillStyle = withAlpha(color, 0.82);
+    ctx.beginPath();
+    ctx.moveTo(x + 250, y);
+    ctx.lineTo(x + 250, y + 54);
+    ctx.lineTo(x + 196, y);
+    ctx.closePath();
+    ctx.fill();
+    drawText("选中", x + 226, y + 18, 13, "#fffaf0", "center", "bold");
+    ctx.restore();
+  }
+
+  function drawPaperPanel(x, y, w, h) {
+    ctx.save();
+    ctx.fillStyle = "rgba(255,250,243,0.88)";
+    roundRect(x, y, w, h, 8);
+    ctx.fill();
+    ctx.strokeStyle = "rgba(67,54,56,0.74)";
+    ctx.lineWidth = 4;
+    ctx.stroke();
+    ctx.strokeStyle = "rgba(185,77,69,0.38)";
+    ctx.lineWidth = 2;
+    roundRect(x + 9, y + 9, w - 18, h - 18, 6);
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  function drawText(text, x, y, size, color, align = "left", weight = "normal") {
+    ctx.save();
+    ctx.fillStyle = color;
+    ctx.textAlign = align;
+    ctx.textBaseline = "middle";
+    ctx.font = `${weight} ${size}px "Hiragino Maru Gothic ProN", "Yu Gothic", "Microsoft YaHei", system-ui, sans-serif`;
+    ctx.fillText(text, x, y);
+    ctx.restore();
+  }
+
+  function roundRect(x, y, w, h, r) {
+    const radius = Math.min(r, w / 2, h / 2);
+    ctx.beginPath();
+    ctx.moveTo(x + radius, y);
+    ctx.lineTo(x + w - radius, y);
+    ctx.quadraticCurveTo(x + w, y, x + w, y + radius);
+    ctx.lineTo(x + w, y + h - radius);
+    ctx.quadraticCurveTo(x + w, y + h, x + w - radius, y + h);
+    ctx.lineTo(x + radius, y + h);
+    ctx.quadraticCurveTo(x, y + h, x, y + h - radius);
+    ctx.lineTo(x, y + radius);
+    ctx.quadraticCurveTo(x, y, x + radius, y);
+  }
+
+  function star(x, y, radius, points) {
+    ctx.beginPath();
+    for (let i = 0; i < points * 2; i += 1) {
+      const angle = -Math.PI / 2 + (Math.PI * i) / points;
+      const length = i % 2 === 0 ? radius : radius * 0.42;
+      const px = x + Math.cos(angle) * length;
+      const py = y + Math.sin(angle) * length;
+      if (i === 0) ctx.moveTo(px, py);
+      else ctx.lineTo(px, py);
+    }
+    ctx.closePath();
+    ctx.fill();
+  }
+
+  function clamp(value, min, max) {
+    return Math.max(min, Math.min(max, value));
+  }
+
+  function withAlpha(hex, alpha) {
+    if (!hex || hex[0] !== "#" || hex.length !== 7) return `rgba(185,77,69,${alpha})`;
+    const r = parseInt(hex.slice(1, 3), 16);
+    const g = parseInt(hex.slice(3, 5), 16);
+    const b = parseInt(hex.slice(5, 7), 16);
+    return `rgba(${r},${g},${b},${alpha})`;
+  }
+})();
