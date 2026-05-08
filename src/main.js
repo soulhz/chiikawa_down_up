@@ -371,6 +371,9 @@
       if (key === " " || key === "j") {
         attackWithPlayer();
       }
+      if ((key === "e" || key === "k") && !event.repeat) {
+        useSpecialSkill();
+      }
       if (key === "shift" && !event.repeat) {
         dashPlayer();
       }
@@ -476,7 +479,11 @@
     }
     if (game.enemies.length === 0) {
       if (!game.bossStarted && game.wave >= BOSS_TRIGGER_WAVE) {
-        beginBossStage();
+        if (!game.bossChoiceOffered) {
+          beginUpgrade({ beforeBoss: true });
+        } else {
+          beginBossStage();
+        }
       } else if (!game.bossDefeated) {
         beginUpgrade();
       }
@@ -525,6 +532,8 @@
       maxHp: role.maxHp,
       attackCooldown: 0,
       attackTimer: 0,
+      specialCooldown: 0,
+      specialMaxCooldown: 12,
       dashCharges: DASH_MAX_CHARGES,
       dashRecharge: 0,
       dashInputLock: 0,
@@ -552,6 +561,8 @@
       bossStarted: false,
       bossDefeated: false,
       bossIntroTimer: 0,
+      bossChoiceOffered: false,
+      pendingBossChoice: false,
       victoryTimer: 0,
       enemies: [],
       projectiles: [],
@@ -746,6 +757,7 @@
 
     player.attackCooldown = Math.max(0, player.attackCooldown - dt);
     player.attackTimer = Math.max(0, player.attackTimer - dt);
+    player.specialCooldown = Math.max(0, player.specialCooldown - dt);
     player.dashTime = Math.max(0, player.dashTime - dt);
     player.dashInputLock = Math.max(0, player.dashInputLock - dt);
     updateDashRecharge(player, dt);
@@ -1185,6 +1197,88 @@
     addEffect(hitCount > 0 ? "slash" : "swing", sx, sy, player.role.color, Math.atan2(player.attackDirY, player.attackDirX));
   }
 
+  function useSpecialSkill() {
+    const game = state.game;
+    if (!game || state.scene !== "playing") return;
+    const player = game.player;
+    if (player.specialCooldown > 0 || player.hp <= 0 || game.bossIntroTimer > 0) return;
+    player.specialCooldown = player.specialMaxCooldown;
+    if (player.role.id === "chiikawa") {
+      useChiikawaSpecial(game, player);
+    } else if (player.role.id === "hachiware") {
+      useHachiwareSpecial(game, player);
+    } else {
+      useUsagiSpecial(game, player);
+    }
+  }
+
+  function useChiikawaSpecial(game, player) {
+    player.hp = Math.min(player.maxHp, player.hp + 28);
+    player.invuln = Math.max(player.invuln, 1.1);
+    player.shields += 1;
+    addFloater("勇气护身", player.x, player.y - 74, player.role.color, 0.95);
+    addEffect("guardFlash", player.x, player.y - 26, player.role.color);
+    addEffect("impactRing", player.x, player.y - 20, player.role.color);
+    addEffect("chiikawaGuard", player.x, player.y - 28, player.role.color);
+    addEffect("specialAura", player.x, player.y - 28, player.role.color);
+    triggerScreenShake(10, 0.16);
+  }
+
+  function useHachiwareSpecial(game, player) {
+    let hitCount = 0;
+    const radius = 158 + game.rangeBonus * 0.8;
+    for (const enemy of [...game.enemies]) {
+      const dx = enemy.x - player.x;
+      const dy = enemy.y - player.y;
+      const distance = Math.hypot(dx, dy);
+      if (distance > radius + enemy.radius) continue;
+      const damage = Math.round((22 + player.role.attack * 0.72) * game.attackMult);
+      enemy.hp -= damage;
+      enemy.hurt = 0.45;
+      enemy.recoveryTimer = Math.max(enemy.recoveryTimer || 0, enemy.boss ? 0.45 : 0.9);
+      enemy.vx += dx / Math.max(1, distance) * 210;
+      enemy.vy += dy / Math.max(1, distance) * 130;
+      hitCount += 1;
+      addFloater(`-${damage}`, enemy.x, enemy.y - 48, COLORS.blue, 0.6);
+      addEffect("hit", enemy.x, enemy.y - 30, COLORS.blue);
+      if (enemy.hp <= 0) defeatEnemy(enemy);
+    }
+    addFloater(hitCount > 0 ? "友情连携!" : "友情鼓舞", player.x, player.y - 74, COLORS.blue, 0.9);
+    addEffect("hachiwareChord", player.x, player.y - 30, COLORS.blue);
+    addEffect("specialAura", player.x, player.y - 26, COLORS.blue);
+    addEffect("bossShockwave", player.x, player.y - 24, COLORS.blue);
+    triggerScreenShake(hitCount > 0 ? 14 : 7, 0.18);
+  }
+
+  function useUsagiSpecial(game, player) {
+    const dashDistance = 108;
+    player.x += player.aimX * dashDistance;
+    player.y += player.aimY * dashDistance * 0.72;
+    keepActorInBounds(player, PLAYER_BOUNDS);
+    let hitCount = 0;
+    const radius = 116 + game.rangeBonus;
+    for (const enemy of [...game.enemies]) {
+      const dx = enemy.x - player.x;
+      const dy = enemy.y - player.y;
+      const distance = Math.hypot(dx, dy);
+      if (distance > radius + enemy.radius) continue;
+      const damage = Math.round((34 + player.role.attack * 0.88) * game.attackMult);
+      enemy.hp -= damage;
+      enemy.hurt = 0.38;
+      enemy.vx += dx / Math.max(1, distance) * 340;
+      enemy.vy += dy / Math.max(1, distance) * 210;
+      hitCount += 1;
+      addFloater(`-${damage}`, enemy.x, enemy.y - 48, COLORS.gold, 0.62);
+      addEffect("slash", enemy.x, enemy.y - 32, COLORS.gold, Math.atan2(dy, dx));
+      if (enemy.hp <= 0) defeatEnemy(enemy);
+    }
+    addFloater("YA-HA-!!", player.x, player.y - 74, COLORS.gold, 0.95);
+    addEffect("usagiBurst", player.x, player.y - 28, COLORS.gold, Math.atan2(player.aimY, player.aimX));
+    addEffect("specialAura", player.x, player.y - 24, COLORS.gold);
+    addEffect("bossShockwave", player.x, player.y - 22, COLORS.gold);
+    triggerScreenShake(hitCount > 0 ? 18 : 10, 0.2);
+  }
+
   function findNearestEnemy(player, maxDistance) {
     let nearest = null;
     let bestDistance = maxDistance;
@@ -1212,6 +1306,10 @@
       addFloater("破绽!", enemy.x, enemy.y - 68, COLORS.red, 0.7);
     }
     addFloater(`-${damage}`, enemy.x, enemy.y - 46, COLORS.ink, 0.55);
+    addEffect("playerSlashImpact", enemy.x, enemy.y - 32, player.role.color, Math.atan2(enemy.y - player.y, enemy.x - player.x));
+    if (enemy.hp > 0) {
+      triggerScreenShake(openingBonus > 1.1 ? 9 : 5, 0.08);
+    }
     if (enemy.hp <= 0) {
       defeatEnemy(enemy);
     }
@@ -1343,15 +1441,22 @@
     addEffect("dust", player.x - dx * 16, player.y - 10 - dy * 6, COLORS.blue);
   }
 
-  function beginUpgrade() {
+  function beginUpgrade(options = {}) {
     const game = state.game;
     if (game.elapsed >= game.duration) {
       finishGame("time");
       return;
     }
-    game.duration += 40;
+    const beforeBoss = Boolean(options.beforeBoss);
+    game.pendingBossChoice = beforeBoss;
+    if (beforeBoss) {
+      game.bossChoiceOffered = true;
+      addFloater("决战前抽卡", WIDTH / 2, 88, COLORS.gold, 1.2);
+    } else {
+      game.duration += 40;
+      addFloater("+40秒", WIDTH / 2, 88, COLORS.blue, 1.2);
+    }
     game.projectiles = [];
-    addFloater("+40秒", WIDTH / 2, 88, COLORS.blue, 1.2);
     state.scene = "upgrade";
     game.pendingUpgrades = pickUpgrades();
   }
@@ -1373,8 +1478,14 @@
     if (!upgrade) return;
     upgrade.apply(game);
     addFloater(upgrade.name, WIDTH / 2, 122, COLORS.red, 1);
-    spawnWave();
+    const shouldStartBoss = game.pendingBossChoice;
+    game.pendingBossChoice = false;
     state.scene = "playing";
+    if (shouldStartBoss) {
+      beginBossStage();
+    } else {
+      spawnWave();
+    }
     lastTime = performance.now();
   }
 
@@ -1384,6 +1495,9 @@
     game.reason = reason;
     game.resultSaved = true;
     const result = makeResult(game);
+    if (reason === "lose") {
+      result.rankingRevealAt = performance.now() + 1600;
+    }
     saveRanking(result.entry);
     result.rank = getCombinedRankings().findIndex((item) => item.createdAt === result.entry.createdAt) + 1;
     state.result = result;
@@ -1409,6 +1523,7 @@
       highestMultiplier: game.highestMultiplier,
       kills: game.kills,
       reason: game.reason,
+      rankingRevealAt: 0,
       rank: 0,
     };
   }
@@ -1457,9 +1572,13 @@
           : type === "bossDefeat" ? 0.9
             : type === "bossSmash" || type === "bossShockwave" ? 0.52
               : type === "bossAxeThrow" ? 0.46
-                : type === "attackFlash" || type === "enemySpark" ? 0.34
-                  : type === "shurikenThrow" || type === "shurikenHit" ? 0.36
-                    : 0.32;
+                : type === "specialAura" ? 0.86
+                  : type === "usagiBurst" ? 0.58
+                    : type === "hachiwareChord" ? 0.72
+                      : type === "chiikawaGuard" ? 0.82
+                        : type === "attackFlash" || type === "enemySpark" ? 0.34
+                          : type === "shurikenThrow" || type === "shurikenHit" || type === "playerSlashImpact" ? 0.36
+                            : 0.32;
     state.game.effects.push({ type, x, y, color, angle, age: 0, life });
   }
 
@@ -1950,6 +2069,7 @@
     drawHealth(36, 82, 318, 18, player.hp / player.maxHp, COLORS.red);
     drawBossHealthBar(game);
     drawDashCooldown(player);
+    drawSpecialCooldown(player);
     if (player.shields > 0) {
       drawText(`御守 x${player.shields}`, 536, 96, 18, COLORS.blue, "left", "bold");
     }
@@ -1987,52 +2107,143 @@
   }
 
   function drawDashCooldown(player) {
-    const x = WIDTH - 228;
-    const y = HEIGHT - 126;
+    const x = 1044;
+    const y = 20;
     const nextRatio = player.dashCharges >= DASH_MAX_CHARGES ? 1 : clamp(player.dashRecharge / DASH_RECHARGE_TIME, 0, 1);
     const seconds = Math.ceil(DASH_RECHARGE_TIME - player.dashRecharge);
     const ready = player.dashCharges > 0;
-    const centerX = x + 42;
-    const centerY = y + 46;
+    const centerX = x + 26;
+    const centerY = y + 25;
+    state.buttons.push({ x, y, w: 118, h: 50, onClick: dashPlayer });
     ctx.save();
     ctx.fillStyle = "rgba(255,249,239,0.92)";
     ctx.strokeStyle = ready ? COLORS.blue : "rgba(67,54,56,0.5)";
     ctx.lineWidth = 3;
-    roundRect(x, y, 152, 78, 9);
+    roundRect(x, y, 118, 50, 9);
     ctx.fill();
     ctx.stroke();
     ctx.fillStyle = ready ? "rgba(127,182,211,0.95)" : "rgba(123,107,103,0.55)";
     ctx.strokeStyle = "rgba(67,54,56,0.5)";
-    ctx.lineWidth = 3;
+    ctx.lineWidth = 2.5;
     ctx.beginPath();
-    ctx.arc(centerX, centerY, 30, 0, Math.PI * 2);
+    ctx.arc(centerX, centerY, 18, 0, Math.PI * 2);
     ctx.fill();
     ctx.stroke();
     if (player.dashCharges < DASH_MAX_CHARGES) {
       ctx.strokeStyle = COLORS.blue;
-      ctx.lineWidth = 5;
+      ctx.lineWidth = 4;
       ctx.beginPath();
-      ctx.arc(centerX, centerY, 34, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * nextRatio);
+      ctx.arc(centerX, centerY, 21, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * nextRatio);
       ctx.stroke();
     }
+    ctx.save();
+    ctx.translate(centerX, centerY);
+    ctx.scale(0.65, 0.65);
+    ctx.translate(-centerX, -centerY);
     drawDodgeIcon(centerX, centerY + 1, ready);
+    ctx.restore();
     if (!ready) {
       ctx.fillStyle = "rgba(67,54,56,0.42)";
       ctx.beginPath();
-      ctx.arc(centerX, centerY, 30, 0, Math.PI * 2);
+      ctx.arc(centerX, centerY, 18, 0, Math.PI * 2);
       ctx.fill();
-      drawText(`${seconds}`, centerX, centerY + 1, 23, "#fffaf0", "center", "bold");
+      drawText(`${seconds}`, centerX, centerY + 1, 17, "#fffaf0", "center", "bold");
     }
-    drawText("闪避", x + 98, y + 20, 18, COLORS.ink, "center", "bold");
-    drawText(`${player.dashCharges}/${DASH_MAX_CHARGES}`, x + 126, y + 56, 17, ready ? COLORS.blue : COLORS.muted, "center", "bold");
+    drawText("闪避", x + 70, y + 19, 16, COLORS.ink, "center", "bold");
+    drawText("Shift", x + 70, y + 37, 12, ready ? COLORS.blue : COLORS.muted, "center", "bold");
+    drawText(`${player.dashCharges}/${DASH_MAX_CHARGES}`, x + 103, y + 37, 13, ready ? COLORS.blue : COLORS.muted, "center", "bold");
     for (let i = 0; i < DASH_MAX_CHARGES; i += 1) {
       const filled = i < player.dashCharges;
       const recharging = !filled && i === player.dashCharges;
-      drawDashCharge(x + 83 + i * 31, y + 44, filled, recharging ? nextRatio : 0);
+      drawDashCharge(x + 74 + i * 21, y + 47, filled, recharging ? nextRatio : 0, 0.62);
     }
-    if (player.dashCharges < DASH_MAX_CHARGES) {
-      drawText(`${seconds}s`, x + 94, y + 61, 13, COLORS.muted, "center", "bold");
+    ctx.restore();
+  }
+
+  function drawSpecialCooldown(player) {
+    const x = 914;
+    const y = 20;
+    const ready = player.specialCooldown <= 0;
+    const ratio = ready ? 1 : 1 - clamp(player.specialCooldown / player.specialMaxCooldown, 0, 1);
+    const skill = getSpecialSkillInfo(player.role.id);
+    state.buttons.push({ x, y, w: 118, h: 50, onClick: useSpecialSkill });
+    ctx.save();
+    ctx.fillStyle = "rgba(255,249,239,0.92)";
+    ctx.strokeStyle = ready ? skill.color : "rgba(67,54,56,0.48)";
+    ctx.lineWidth = 3;
+    roundRect(x, y, 118, 50, 9);
+    ctx.fill();
+    ctx.stroke();
+    const centerX = x + 26;
+    const centerY = y + 25;
+    ctx.fillStyle = ready ? withAlpha(skill.color, 0.95) : "rgba(123,107,103,0.55)";
+    ctx.beginPath();
+    ctx.arc(centerX, centerY, 18, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = "rgba(67,54,56,0.5)";
+    ctx.stroke();
+    if (!ready) {
+      ctx.strokeStyle = skill.color;
+      ctx.lineWidth = 4;
+      ctx.beginPath();
+      ctx.arc(centerX, centerY, 21, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * ratio);
+      ctx.stroke();
+      ctx.fillStyle = "rgba(67,54,56,0.42)";
+      ctx.beginPath();
+      ctx.arc(centerX, centerY, 18, 0, Math.PI * 2);
+      ctx.fill();
+      drawText(`${Math.ceil(player.specialCooldown)}`, centerX, centerY + 1, 17, "#fffaf0", "center", "bold");
+    } else {
+      ctx.save();
+      ctx.translate(centerX, centerY);
+      ctx.scale(0.68, 0.68);
+      ctx.translate(-centerX, -centerY);
+      drawSpecialIcon(centerX, centerY, skill.icon, skill.color);
+      ctx.restore();
     }
+    drawText("奥义", x + 70, y + 18, 16, COLORS.ink, "center", "bold");
+    drawText("E / K", x + 70, y + 36, 12, ready ? skill.color : COLORS.muted, "center", "bold");
+    drawText(skill.name, x + 96, y + 36, 11, ready ? skill.color : COLORS.muted, "center", "bold");
+    ctx.restore();
+  }
+
+  function getSpecialSkillInfo(roleId) {
+    if (roleId === "chiikawa") return { name: "勇气护身", icon: "heart", color: COLORS.green };
+    if (roleId === "hachiware") return { name: "友情连携", icon: "spark", color: COLORS.blue };
+    return { name: "呀哈突进", icon: "bolt", color: COLORS.gold };
+  }
+
+  function drawSpecialIcon(x, y, icon, color) {
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.fillStyle = "#fff8e0";
+    ctx.strokeStyle = "rgba(67,54,56,0.65)";
+    ctx.lineWidth = 2;
+    if (icon === "heart") {
+      ctx.beginPath();
+      ctx.moveTo(0, 14);
+      ctx.bezierCurveTo(-24, -1, -19, -22, 0, -11);
+      ctx.bezierCurveTo(19, -22, 24, -1, 0, 14);
+      ctx.fill();
+      ctx.stroke();
+    } else if (icon === "spark") {
+      star(0, 0, 18, 6);
+      ctx.stroke();
+    } else {
+      ctx.beginPath();
+      ctx.moveTo(-7, -20);
+      ctx.lineTo(10, -4);
+      ctx.lineTo(1, -2);
+      ctx.lineTo(8, 20);
+      ctx.lineTo(-12, 0);
+      ctx.lineTo(-2, -2);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+    }
+    ctx.globalCompositeOperation = "source-atop";
+    ctx.fillStyle = withAlpha(color, 0.55);
+    ctx.fillRect(-24, -24, 48, 48);
     ctx.restore();
   }
 
@@ -2055,9 +2266,10 @@
     ctx.restore();
   }
 
-  function drawDashCharge(x, y, filled, rechargeRatio) {
+  function drawDashCharge(x, y, filled, rechargeRatio, scale = 1) {
     ctx.save();
     ctx.translate(x, y);
+    ctx.scale(scale, scale);
     ctx.fillStyle = filled ? "rgba(127,182,211,0.95)" : "rgba(255,255,255,0.78)";
     ctx.strokeStyle = filled ? COLORS.blue : "rgba(67,54,56,0.36)";
     ctx.lineWidth = 3;
@@ -2100,17 +2312,17 @@
 
   function drawAvatarBadge() {
     const game = state.game;
-    const x = WIDTH - 128;
-    const y = 38;
+    const x = WIDTH - 46;
+    const y = 84;
     ctx.save();
     ctx.fillStyle = "rgba(255,255,255,0.78)";
     ctx.beginPath();
-    ctx.arc(x, y + 54, 62, 0, Math.PI * 2);
+    ctx.arc(x, y, 34, 0, Math.PI * 2);
     ctx.fill();
     ctx.strokeStyle = game.role.color;
-    ctx.lineWidth = 8;
+    ctx.lineWidth = 5;
     ctx.stroke();
-    drawRoleSprite(game.role, "front", 1, x, y + 94, 0.25, false);
+    drawRoleSprite(game.role, "front", 1, x, y + 35, 0.14, false);
     ctx.restore();
   }
 
@@ -2120,8 +2332,8 @@
     ctx.fillStyle = "rgba(58,50,54,0.5)";
     ctx.fillRect(0, 0, WIDTH, HEIGHT);
     drawPaperPanel(256, 78, 666, 108);
-    drawText("瓦版号外", WIDTH / 2, 120, 26, COLORS.red, "center", "bold");
-    drawText("选择一张木札", WIDTH / 2, 158, 38, COLORS.ink, "center", "bold");
+    drawText(game.pendingBossChoice ? "御殿决战前夜" : "瓦版号外", WIDTH / 2, 120, 26, game.pendingBossChoice ? COLORS.gold : COLORS.red, "center", "bold");
+    drawText(game.pendingBossChoice ? "选择一张木札迎战将军" : "选择一张木札", WIDTH / 2, 158, 38, COLORS.ink, "center", "bold");
     game.pendingUpgrades.forEach((upgrade, index) => {
       const x = 222 + index * 258;
       drawCard(x, 230, 218, 178, "#fff8ec", false);
@@ -2135,16 +2347,13 @@
 
   function drawResult() {
     const result = state.result;
-    drawSoftBackground();
     const success = result.reason !== "lose";
     if (!success) {
-      ctx.save();
-      ctx.fillStyle = "rgba(70,66,69,0.64)";
-      ctx.fillRect(0, 0, WIDTH, HEIGHT);
-      ctx.restore();
+      drawFailureResult(result);
+      return;
     }
-    const headline = success ? "你的排名" : "下克上失败";
-    drawText(headline, WIDTH / 2, 70, 35, success ? COLORS.ink : "#ffffff", "center", "bold");
+    drawSoftBackground();
+    drawText("你的排名", WIDTH / 2, 70, 35, COLORS.ink, "center", "bold");
     drawText(`第 ${result.rank} 位`, WIDTH / 2, 152, 68, COLORS.gold, "center", "bold");
     drawText(result.title, WIDTH / 2, 208, 34, COLORS.red, "center", "bold");
     drawPaperPanel(286, 248, 606, 138);
@@ -2161,6 +2370,74 @@
     drawButton(684, 424, 160, 58, "标题", "戻る", () => {
       state.scene = "start";
     }, "quiet");
+  }
+
+  function drawFailureResult(result) {
+    ctx.save();
+    ctx.fillStyle = "#9c9999";
+    ctx.fillRect(0, 0, WIDTH, HEIGHT);
+    const haze = ctx.createRadialGradient(WIDTH / 2, 168, 80, WIDTH / 2, 168, 520);
+    haze.addColorStop(0, "rgba(255,255,255,0.16)");
+    haze.addColorStop(1, "rgba(80,76,78,0.18)");
+    ctx.fillStyle = haze;
+    ctx.fillRect(0, 0, WIDTH, HEIGHT);
+    drawText("下克上失败……", WIDTH / 2, 150, 72, "rgba(255,255,255,0.94)", "center", "bold");
+    drawFailureSkull(WIDTH / 2, 248, 0.92);
+
+    const showRanking = !result.rankingRevealAt || performance.now() >= result.rankingRevealAt;
+    if (!showRanking) {
+      ctx.restore();
+      return;
+    }
+
+    ctx.fillStyle = "rgba(76,72,74,0.34)";
+    roundRect(286, 320, 606, 86, 16);
+    ctx.fill();
+    ctx.strokeStyle = "rgba(255,255,255,0.28)";
+    ctx.lineWidth = 2;
+    ctx.stroke();
+    drawText("本局番付", WIDTH / 2 - 170, 354, 20, "rgba(255,255,255,0.78)", "center", "bold");
+    drawText(`第 ${result.rank} 位`, WIDTH / 2, 368, 42, "#fff8dd", "center", "bold");
+    drawText(result.title, WIDTH / 2 + 180, 360, 22, "rgba(255,255,255,0.86)", "center", "bold");
+
+    drawText(`小判点 ${result.score}`, 360, 438, 20, "rgba(255,255,255,0.88)", "left", "bold");
+    drawText(`击破 ${result.bestRank.name}`, 360, 468, 18, "rgba(255,255,255,0.78)", "left");
+    drawText(`最大倍率 ${result.highestMultiplier.toFixed(1)}x`, 620, 438, 18, "rgba(255,255,255,0.78)", "left");
+    drawText(`击破数 ${result.kills}`, 620, 468, 18, "rgba(255,255,255,0.78)", "left");
+    ctx.restore();
+
+    drawButton(336, 486, 160, 44, "再战", "一局", () => {
+      state.scene = "select";
+    }, "quiet");
+    drawButton(510, 486, 160, 44, "番付", "排行", () => {
+      state.scene = "ranking";
+    }, "quiet");
+    drawButton(684, 486, 160, 44, "标题", "戻る", () => {
+      state.scene = "start";
+    }, "quiet");
+  }
+
+  function drawFailureSkull(x, y, scale = 1) {
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.scale(scale, scale);
+    ctx.fillStyle = "rgba(255,255,255,0.92)";
+    ctx.beginPath();
+    ctx.ellipse(0, -8, 58, 48, 0, 0, Math.PI * 2);
+    ctx.fill();
+    roundRect(-30, 18, 60, 34, 10);
+    ctx.fill();
+    ctx.fillStyle = "#8f8c8d";
+    ctx.beginPath();
+    ctx.arc(-22, -9, 8, 0, Math.PI * 2);
+    ctx.arc(22, -9, 8, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = "#9c9999";
+    roundRect(-26, 34, 13, 28, 5);
+    ctx.fill();
+    roundRect(13, 34, 13, 28, 5);
+    ctx.fill();
+    ctx.restore();
   }
 
   function drawRanking() {
@@ -2192,12 +2469,14 @@
     const frame = chooseActorFrame(player);
     const characterFrame = chooseCharacterFrame(player);
     const flip = chooseActorFlip(player);
+    const attackProgress = player.attackTimer > 0 ? clamp(1 - player.attackTimer / (player.attackDuration || 0.75), 0, 1) : 0;
+    const attackLunge = attackProgress > 0 ? Math.sin(attackProgress * Math.PI) : 0;
     drawShadow(player.x, player.y, player.radius + 10, "rgba(58,48,50,0.18)");
     drawDashAfterimages(player, characterFrame, flip);
     drawPlayerHurtAura(player);
     const flicker = player.invuln > 0 && player.hurt <= 0 && player.dashTime <= 0 && Math.floor(performance.now() / 80) % 2 === 0;
     if (player.attackTimer > 0 && getActorFacing(player).y < -0.42) {
-      drawDirectionalAttack(player, 1, COLORS.red);
+      drawDirectionalAttack(player, 1.05, player.role.color);
     }
     if (!flicker) {
       if (characterFrame) {
@@ -2207,17 +2486,17 @@
         const hurtPulse = player.hurt > 0 ? clamp(player.hurt / 0.38, 0, 1) : 0;
         const hurtKick = hurtPulse > 0 ? Math.sin(hurtPulse * Math.PI * 5) * 4 : 0;
         drawCharacterFrame(characterFrame, player.x, player.y + 18, 0.38, flip, {
-          rotation: dashLean + hurtPulse * (flip ? -0.12 : 0.12),
-          scaleX: stretch + hurtPulse * 0.12,
-          scaleY: 1 / stretch - hurtPulse * 0.08,
-          offsetX: hurtKick,
-          offsetY: -hurtPulse * 7,
+          rotation: dashLean + player.attackDirX * attackLunge * 0.13 + hurtPulse * (flip ? -0.12 : 0.12),
+          scaleX: stretch + attackLunge * 0.1 + hurtPulse * 0.12,
+          scaleY: 1 / stretch - attackLunge * 0.06 - hurtPulse * 0.08,
+          offsetX: hurtKick + player.attackDirX * attackLunge * 12,
+          offsetY: -hurtPulse * 7 + player.attackDirY * attackLunge * 7,
         });
       }
       else drawSprite(player.row, frame, player.x, player.y + 19, 0.39, flip);
     }
     if (player.attackTimer > 0 && getActorFacing(player).y >= -0.42) {
-      drawDirectionalAttack(player, 1, COLORS.red);
+      drawDirectionalAttack(player, 1.05, player.role.color);
     }
     drawRankTag(player.x, player.y - 74, player.role.name, player.role.color);
   }
@@ -2561,6 +2840,35 @@
     ctx.save();
     ctx.translate(actor.x + facing.x * 28, actor.y - 28 + facing.y * 18);
     ctx.rotate(baseAngle);
+    if (!isEnemy) {
+      ctx.globalAlpha = 0.26 + Math.sin(progress * Math.PI) * 0.34;
+      ctx.shadowBlur = 24 * scale;
+      ctx.shadowColor = color;
+      ctx.strokeStyle = withAlpha(color, 0.52);
+      ctx.lineWidth = 22 * scale;
+      ctx.lineCap = "round";
+      ctx.beginPath();
+      ctx.arc(0, 0, arcRadius + 6 * scale + progress * 26 * scale, -1.02 + sweep * 0.35, 1.02 + sweep * 0.35);
+      ctx.stroke();
+      ctx.shadowBlur = 0;
+      ctx.globalAlpha = Math.max(0.12, 0.58 - progress * 0.35);
+      ctx.strokeStyle = "rgba(255,255,255,0.86)";
+      ctx.lineWidth = 9 * scale;
+      ctx.beginPath();
+      ctx.arc(0, 0, arcRadius + 16 * scale + progress * 26 * scale, -0.72 + sweep * 0.35, 0.72 + sweep * 0.35);
+      ctx.stroke();
+      for (let i = 0; i < 3; i += 1) {
+        const lane = -0.34 + i * 0.34;
+        ctx.globalAlpha = Math.max(0, 0.48 - progress * 0.24 - i * 0.06);
+        ctx.strokeStyle = withAlpha(color, 0.82);
+        ctx.lineWidth = (4 - i * 0.6) * scale;
+        ctx.beginPath();
+        ctx.moveTo(12 * scale, lane * 34 * scale);
+        ctx.lineTo((76 + progress * 34) * scale, lane * (48 + progress * 22) * scale);
+        ctx.stroke();
+      }
+      ctx.globalAlpha = 1;
+    }
     if (isEnemy) {
       ctx.globalAlpha = 0.34 + progress * 0.32;
       ctx.shadowBlur = 16 * scale;
@@ -2960,6 +3268,83 @@
         ctx.stroke();
         ctx.fillStyle = "rgba(255,255,255,0.68)";
         star(0, 0, 10 + progress * 12, 6);
+      }
+      if (effect.type === "specialAura") {
+        const pulse = Math.sin(progress * Math.PI);
+        ctx.shadowBlur = 26;
+        ctx.shadowColor = effect.color;
+        ctx.strokeStyle = withAlpha(effect.color, 0.78);
+        ctx.lineWidth = 6 * (1 - progress) + 2;
+        ctx.beginPath();
+        ctx.ellipse(0, 0, 42 + progress * 84, 28 + progress * 46, 0, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.globalAlpha *= 0.72;
+        ctx.fillStyle = withAlpha(effect.color, 0.24 + pulse * 0.18);
+        star(0, -6, 22 + pulse * 15, 8);
+      }
+      if (effect.type === "chiikawaGuard") {
+        ctx.strokeStyle = withAlpha(effect.color, 0.86);
+        ctx.fillStyle = "rgba(255,255,255,0.78)";
+        ctx.lineWidth = 4;
+        for (let i = 0; i < 3; i += 1) {
+          const angle = progress * Math.PI * 2 + i * (Math.PI * 2 / 3);
+          const hx = Math.cos(angle) * (32 + progress * 24);
+          const hy = Math.sin(angle) * (20 + progress * 18);
+          ctx.beginPath();
+          ctx.moveTo(hx, hy + 10);
+          ctx.bezierCurveTo(hx - 16, hy, hx - 12, hy - 15, hx, hy - 8);
+          ctx.bezierCurveTo(hx + 12, hy - 15, hx + 16, hy, hx, hy + 10);
+          ctx.fill();
+          ctx.stroke();
+        }
+      }
+      if (effect.type === "hachiwareChord") {
+        ctx.strokeStyle = withAlpha(effect.color, 0.86);
+        ctx.lineWidth = 5;
+        for (let i = 0; i < 5; i += 1) {
+          const angle = -Math.PI * 0.82 + i * (Math.PI * 0.41) + progress * 0.18;
+          ctx.beginPath();
+          ctx.moveTo(Math.cos(angle) * 28, Math.sin(angle) * 18);
+          ctx.lineTo(Math.cos(angle) * (88 + progress * 36), Math.sin(angle) * (56 + progress * 26));
+          ctx.stroke();
+        }
+        ctx.fillStyle = "rgba(255,255,255,0.82)";
+        for (let i = 0; i < 4; i += 1) {
+          const angle = progress * Math.PI * 2 + i * Math.PI / 2;
+          star(Math.cos(angle) * 56, Math.sin(angle) * 32, 8 + progress * 7, 5);
+        }
+      }
+      if (effect.type === "usagiBurst") {
+        ctx.shadowBlur = 22;
+        ctx.shadowColor = effect.color;
+        ctx.strokeStyle = withAlpha(effect.color, 0.9);
+        ctx.lineWidth = 8 * (1 - progress) + 3;
+        ctx.lineCap = "round";
+        for (let i = 0; i < 7; i += 1) {
+          const offset = -0.72 + i * 0.24;
+          ctx.beginPath();
+          ctx.moveTo(-28, offset * 26);
+          ctx.lineTo(56 + progress * 96, offset * (48 + progress * 52));
+          ctx.stroke();
+        }
+        ctx.shadowBlur = 0;
+        ctx.fillStyle = "rgba(255,255,255,0.84)";
+        star(22 + progress * 60, 0, 18 + progress * 18, 7);
+      }
+      if (effect.type === "playerSlashImpact") {
+        ctx.shadowBlur = 20;
+        ctx.shadowColor = effect.color;
+        ctx.strokeStyle = withAlpha(effect.color, 0.9);
+        ctx.lineWidth = 6;
+        for (let i = 0; i < 6; i += 1) {
+          const angle = -0.95 + i * 0.38;
+          ctx.beginPath();
+          ctx.moveTo(Math.cos(angle) * 6, Math.sin(angle) * 6);
+          ctx.lineTo(Math.cos(angle) * (32 + progress * 32), Math.sin(angle) * (22 + progress * 26));
+          ctx.stroke();
+        }
+        ctx.fillStyle = "rgba(255,255,255,0.78)";
+        star(0, 0, 11 + progress * 15, 6);
       }
       if (effect.type === "slash" && state.sheet.slash) {
         ctx.rotate(0.1);
