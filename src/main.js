@@ -13,6 +13,7 @@
   const ASSET_PATHS = {
     avatar: EMBEDDED_ASSETS.avatar || "asset/asset_avater_sprit.png",
     background: EMBEDDED_ASSETS.background || "asset/asset_backgroud.png",
+    opening: EMBEDDED_ASSETS.opening || "asset/game_opening.png",
     battle: EMBEDDED_ASSETS.battle || "asset/edo_battle_background.png",
     castleInterior: EMBEDDED_ASSETS.castleInterior || "asset/edo_castle_interior_background.png",
     characters: {
@@ -327,6 +328,7 @@
   Promise.all([
     loadImage(ASSET_PATHS.avatar),
     loadImage(ASSET_PATHS.background),
+    loadImage(ASSET_PATHS.opening).catch(() => null),
     loadImage(ASSET_PATHS.battle).catch(() => null),
     loadImage(ASSET_PATHS.castleInterior).catch(() => null),
     loadImage(ASSET_PATHS.characters.chiikawa).catch(() => null),
@@ -339,9 +341,10 @@
     loadImage(ASSET_PATHS.enemies.daimyo).catch(() => null),
     loadImage(ASSET_PATHS.enemies.shogun).catch(() => null),
   ])
-    .then(([avatar, background, battleBackground, castleInterior, chiikawa, hachiware, usagi, farmer, ashigaru, samurai, ninja, daimyo, shogun]) => {
+    .then(([avatar, background, opening, battleBackground, castleInterior, chiikawa, hachiware, usagi, farmer, ashigaru, samurai, ninja, daimyo, shogun]) => {
       state.images.avatar = avatar;
       state.images.background = background;
+      state.images.opening = opening;
       state.images.characters = { chiikawa, hachiware, usagi };
       state.images.enemies = { farmer, ashigaru, samurai, ninja, daimyo, shogun };
       if (battleBackground) {
@@ -366,6 +369,9 @@
     state.keys.add(key);
     if ([" ", "shift", "arrowup", "arrowdown", "arrowleft", "arrowright"].includes(key)) {
       event.preventDefault();
+    }
+    if (state.scene === "start" && (key === "enter" || key === " ")) {
+      state.scene = "select";
     }
     if (state.scene === "playing") {
       if (key === " " || key === "j") {
@@ -394,6 +400,10 @@
     const button = [...state.buttons].reverse().find((item) => pointInRect(point, item));
     if (button) {
       button.onClick();
+      return;
+    }
+    if (state.scene === "start") {
+      state.scene = "select";
       return;
     }
     if (state.scene === "playing") {
@@ -1431,14 +1441,14 @@
     player.dashFromY = player.y;
     player.dashDirX = dx;
     player.dashDirY = dy;
-    addEffect("dust", player.x - dx * 20, player.y - 10 - dy * 8, COLORS.muted);
+    addEffect("dashLine", player.x - dx * 20, player.y - 10 - dy * 8, COLORS.blue, Math.atan2(dy, dx));
     player.x += dx * 92;
     player.y += dy * 58;
     keepActorInBounds(player, PLAYER_BOUNDS);
     setPlayerAim(player, dx, dy);
     player.dashTime = DASH_ANIMATION_TIME;
     player.invuln = Math.max(player.invuln, 0.32);
-    addEffect("dust", player.x - dx * 16, player.y - 10 - dy * 6, COLORS.blue);
+    addEffect("dashLine", player.x - dx * 16, player.y - 10 - dy * 6, COLORS.blue, Math.atan2(dy, dx));
   }
 
   function beginUpgrade(options = {}) {
@@ -1931,6 +1941,25 @@
   }
 
   function drawStart() {
+    if (state.images.opening) {
+      ctx.save();
+      ctx.imageSmoothingEnabled = true;
+      ctx.drawImage(state.images.opening, 0, 0, WIDTH, HEIGHT);
+      ctx.restore();
+      ctx.imageSmoothingEnabled = false;
+      drawOpeningStartButton();
+      state.buttons.push({
+        x: 440,
+        y: 452,
+        w: 300,
+        h: 76,
+        onClick: () => {
+          state.scene = "select";
+        },
+      });
+      return;
+    }
+
     drawSoftBackground();
     drawImageAsset("house", WIDTH / 2 + 220, 238, 0.42);
     drawImageAsset("tree", 120, 230, 0.52);
@@ -1946,6 +1975,44 @@
     drawButton(636, 396, 152, 66, "いいえ", "番付", () => {
       state.scene = "ranking";
     }, "quiet");
+  }
+
+  function drawOpeningStartButton() {
+    // START in the generated 2048x1152 image is approx [803,977]-[1258,1104].
+    // The canvas stretches that image to 1179x543, so the matching canvas box is below.
+    const x = 462;
+    const y = 460;
+    const w = 262;
+    const h = 60;
+    const hover = pointInRect(state.pointer, { x: 440, y: 452, w: 300, h: 76 });
+    const down = hover && state.pointer.down;
+    const pulse = (Math.sin(performance.now() / 360) + 1) / 2;
+
+    ctx.save();
+    ctx.globalCompositeOperation = "screen";
+    ctx.shadowColor = hover ? "rgba(255,232,136,0.86)" : `rgba(255,232,136,${0.28 + pulse * 0.22})`;
+    ctx.shadowBlur = hover ? 24 : 12 + pulse * 8;
+    ctx.strokeStyle = hover ? "rgba(255,244,178,0.86)" : `rgba(255,244,178,${0.38 + pulse * 0.22})`;
+    ctx.lineWidth = hover ? 5 : 3;
+    roundRect(x - 8, y - 6, w + 16, h + 12, 22);
+    ctx.stroke();
+
+    ctx.globalAlpha = hover ? 0.22 : 0.11 + pulse * 0.06;
+    ctx.fillStyle = down ? "rgba(255,214,104,0.42)" : "rgba(255,248,200,0.5)";
+    roundRect(x - 2, y, w + 4, h, 18);
+    ctx.fill();
+
+    ctx.globalCompositeOperation = "source-over";
+    ctx.globalAlpha = hover ? 0.95 : 0.62 + pulse * 0.18;
+    ctx.fillStyle = "rgba(255,238,145,0.94)";
+    star(x - 26 - pulse * 4, y + h / 2, hover ? 9 : 7, 4);
+    star(x + w + 26 + pulse * 4, y + h / 2, hover ? 9 : 7, 4);
+
+    if (hover) {
+      drawText("▶", x - 48, y + h / 2, 28, "rgba(255,239,151,0.95)", "center", "bold");
+      drawText("◀", x + w + 48, y + h / 2, 28, "rgba(255,239,151,0.95)", "center", "bold");
+    }
+    ctx.restore();
   }
 
   function drawSelect() {
@@ -2533,22 +2600,55 @@
   }
 
   function drawDashAfterimages(player, characterFrame, flip) {
-    if (!characterFrame || player.dashTime <= 0) return;
+    if (player.dashTime <= 0) return;
     const progress = clamp(1 - player.dashTime / DASH_ANIMATION_TIME, 0, 1);
     const dx = player.x - player.dashFromX;
     const dy = player.y - player.dashFromY;
-    for (let i = 1; i <= 3; i += 1) {
-      const t = clamp(progress - i * 0.18, 0, 1);
-      const ghostX = player.dashFromX + dx * t;
-      const ghostY = player.dashFromY + dy * t;
-      const alpha = (0.22 - i * 0.045) * (1 - progress * 0.25);
-      drawCharacterFrame(characterFrame, ghostX, ghostY + 18, 0.38, flip, {
-        alpha,
-        rotation: player.dashDirX * 0.12,
-        scaleX: 1.06,
-        scaleY: 0.94,
-      });
+    const length = Math.hypot(dx, dy) || 1;
+    const nx = dx / length;
+    const ny = dy / length;
+    const px = -ny;
+    const py = nx;
+
+    ctx.save();
+    ctx.lineCap = "round";
+    ctx.lineJoin = "round";
+    ctx.shadowBlur = 10;
+    ctx.shadowColor = player.role.color;
+
+    // Avoid drawing semi-transparent copies of the character sprite while
+    // dodging.  The character sheets contain soft white edges/empty padding,
+    // which made the dash look like broken body chunks in motion.  Use clean
+    // speed lines + dust puffs instead.
+    for (let i = 0; i < 5; i += 1) {
+      const t = clamp(progress - i * 0.1, 0, 1);
+      const trailX = player.dashFromX + dx * t;
+      const trailY = player.dashFromY + dy * t - 18;
+      const alpha = (0.28 - i * 0.035) * (1 - progress * 0.35);
+      const offset = (i - 2) * 7;
+      ctx.globalAlpha = alpha;
+      ctx.strokeStyle = withAlpha(player.role.color, 0.82);
+      ctx.lineWidth = 8 - i * 0.9;
+      ctx.beginPath();
+      ctx.moveTo(trailX - nx * 46 + px * offset, trailY - ny * 24 + py * offset);
+      ctx.lineTo(trailX - nx * 8 + px * offset * 0.3, trailY - ny * 4 + py * offset * 0.3);
+      ctx.stroke();
+
+      ctx.globalAlpha = alpha * 0.75;
+      ctx.fillStyle = "rgba(255,255,255,0.62)";
+      ctx.beginPath();
+      ctx.ellipse(
+        trailX - nx * 50 + px * offset,
+        trailY + 26 - ny * 10 + py * offset * 0.35,
+        14 - i * 1.5,
+        6 - i * 0.45,
+        Math.atan2(dy, dx),
+        0,
+        Math.PI * 2
+      );
+      ctx.fill();
     }
+    ctx.restore();
   }
 
   function drawEnemy(enemy) {
@@ -2815,26 +2915,28 @@
       ctx.shadowBlur = 0;
     }
 
-    ctx.strokeStyle = "rgba(67,54,56,0.32)";
-    ctx.lineWidth = 11 * scale;
-    ctx.beginPath();
-    ctx.moveTo(-handleLength, 0);
-    ctx.lineTo(weaponLength, 0);
-    ctx.stroke();
+    if (isEnemy) {
+      ctx.strokeStyle = "rgba(67,54,56,0.32)";
+      ctx.lineWidth = 11 * scale;
+      ctx.beginPath();
+      ctx.moveTo(-handleLength, 0);
+      ctx.lineTo(weaponLength, 0);
+      ctx.stroke();
 
-    ctx.strokeStyle = "#6b4a3d";
-    ctx.lineWidth = 7 * scale;
-    ctx.beginPath();
-    ctx.moveTo(-handleLength, 0);
-    ctx.lineTo(weaponLength, 0);
-    ctx.stroke();
+      ctx.strokeStyle = "#6b4a3d";
+      ctx.lineWidth = 7 * scale;
+      ctx.beginPath();
+      ctx.moveTo(-handleLength, 0);
+      ctx.lineTo(weaponLength, 0);
+      ctx.stroke();
 
-    ctx.strokeStyle = "#f4dfbf";
-    ctx.lineWidth = 3 * scale;
-    ctx.beginPath();
-    ctx.moveTo(4 * scale, -2 * scale);
-    ctx.lineTo(weaponLength - 5 * scale, -2 * scale);
-    ctx.stroke();
+      ctx.strokeStyle = "#f4dfbf";
+      ctx.lineWidth = 3 * scale;
+      ctx.beginPath();
+      ctx.moveTo(4 * scale, -2 * scale);
+      ctx.lineTo(weaponLength - 5 * scale, -2 * scale);
+      ctx.stroke();
+    }
     ctx.restore();
 
     ctx.save();
@@ -3363,7 +3465,22 @@
         }
       }
       if (effect.type === "dust") {
-        drawImageAsset("dust", -34, -28, 0.7);
+        ctx.fillStyle = "rgba(255,255,255,0.42)";
+        ctx.beginPath();
+        ctx.ellipse(0, 0, 28 + progress * 18, 10 + progress * 5, 0, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      if (effect.type === "dashLine") {
+        ctx.strokeStyle = withAlpha(effect.color, 0.68);
+        ctx.lineWidth = 5 * (1 - progress) + 1;
+        ctx.lineCap = "round";
+        for (let i = 0; i < 3; i += 1) {
+          const y = (i - 1) * 9;
+          ctx.beginPath();
+          ctx.moveTo(-42 - progress * 18, y);
+          ctx.lineTo(10 - progress * 6, y * 0.35);
+          ctx.stroke();
+        }
       }
       ctx.restore();
     }
