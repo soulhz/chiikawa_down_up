@@ -48,6 +48,16 @@
   const DASH_RECHARGE_TIME = 15;
   const DASH_ANIMATION_TIME = 0.22;
   const DASH_INPUT_LOCK = 0.12;
+
+  const ATTACK_COMBO = [
+    { name: "突刺", duration: 0.32, cooldownMult: 0.55, rangeMult: 0.85, damageMult: 0.85, cone: 0.25 },
+    { name: "横扫", duration: 0.42, cooldownMult: 0.85, rangeMult: 1.0,  damageMult: 1.0,  cone: 0.08 },
+    { name: "终结斩", duration: 0.62, cooldownMult: 1.6, rangeMult: 1.2, damageMult: 1.55, cone: -0.2 },
+  ];
+  const COMBO_WINDOW = 0.55;
+  const BLOCK_PERFECT_WINDOW = 0.10;
+  const BLOCK_DURATION = 0.35;
+  const BLOCK_COOLDOWN = 0.55;
   const BOSS_TRIGGER_WAVE = 3;
   const BOSS_BOUNDS = { minX: 92, maxX: WIDTH - 92, minY: 220, maxY: HEIGHT - 48 };
 
@@ -374,8 +384,11 @@
       state.scene = "select";
     }
     if (state.scene === "playing") {
-      if (key === " " || key === "j") {
+      if (key === "j") {
         attackWithPlayer();
+      }
+      if (key === " " && !event.repeat) {
+        tryStartBlock();
       }
       if ((key === "e" || key === "k") && !event.repeat) {
         useSpecialSkill();
@@ -397,6 +410,10 @@
     canvas.focus();
     const point = getCanvasPoint(event);
     state.pointer = { ...point, down: true, active: true };
+    if (state.scene === "playing" && event.button === 2) {
+      tryStartBlock();
+      return;
+    }
     const button = [...state.buttons].reverse().find((item) => pointInRect(point, item));
     if (button) {
       button.onClick();
@@ -409,6 +426,10 @@
     if (state.scene === "playing") {
       attackWithPlayer(point);
     }
+  });
+
+  canvas.addEventListener("contextmenu", (event) => {
+    event.preventDefault();
   });
 
   canvas.addEventListener("pointermove", (event) => {
@@ -471,6 +492,7 @@
     updateEnemies(dt);
     updateProjectiles(dt);
     updateDrops(dt);
+    updateShrines(dt);
 
     if (game.player.hp <= 0) {
       finishGame("lose");
@@ -542,6 +564,12 @@
       maxHp: role.maxHp,
       attackCooldown: 0,
       attackTimer: 0,
+      attackStep: 0,
+      comboWindow: 0,
+      blockTimer: 0,
+      blockCooldown: 0,
+      blockJustStarted: 0,
+      blockWasActive: false,
       specialCooldown: 0,
       specialMaxCooldown: 12,
       dashCharges: DASH_MAX_CHARGES,
@@ -579,6 +607,7 @@
       drops: [],
       effects: [],
       floaters: [],
+      shrines: [],
       attackMult: 1,
       rangeBonus: 0,
       speedBonus: 0,
@@ -652,10 +681,27 @@
     const boss = createBossEnemy();
     game.boss = boss;
     game.enemies = [boss];
+    game.shrines = [createShrine()];
     game.bossIntroTimer = 2.2;
     addFloater("御殿决战", WIDTH / 2, 112, COLORS.gold, 1.35);
     addFloater("将军登场", boss.x, boss.y - 146, COLORS.red, 1.45);
     triggerScreenShake(20, 0.35);
+  }
+
+  function createShrine() {
+    const onLeft = Math.random() < 0.5;
+    const x = onLeft ? 220 : WIDTH - 220;
+    const y = 252;
+    return {
+      id: cryptoRandomId(),
+      x,
+      y,
+      radius: 30,
+      hp: 50,
+      maxHp: 50,
+      destroyed: false,
+      hurt: 0,
+    };
   }
 
   function createEnemy(rank) {
@@ -694,6 +740,7 @@
       chargeDirY: 0,
       chargeHitDone: false,
       recoveryTimer: 0,
+      staggerTimer: 0,
       hurt: 0,
       moving: false,
       movePhase: Math.random() * Math.PI * 2,
@@ -706,7 +753,7 @@
 
   function createBossEnemy() {
     const rankInfo = RANKS[5];
-    const maxHp = 640;
+    const phaseMaxHp = 320;
     return {
       id: cryptoRandomId(),
       x: WIDTH * 0.5,
@@ -717,10 +764,13 @@
       rank: 6,
       rankInfo,
       boss: true,
+      bossPhase: 1,
+      bossPhaseMax: 2,
+      phaseMaxHp,
       radius: 58,
-      hp: maxHp,
-      maxHp,
-      speed: 48,
+      hp: phaseMaxHp,
+      maxHp: phaseMaxHp,
+      speed: 68,
       damage: 20,
       cooldown: 1.25,
       attackTimer: 0,
@@ -734,6 +784,11 @@
       behaviorTimer: 0.9,
       dirX: 0,
       dirY: 1,
+      bossChargeState: "idle",
+      bossChargeTimer: 0,
+      bossChargeCooldown: 5.5 + Math.random() * 2.5,
+      bossChargeHitDone: false,
+      bossStunTimer: 0,
     };
   }
 
@@ -763,7 +818,8 @@
     }
 
     const speedBuff = player.speedBuff > 0 ? 34 : 0;
-    const speed = player.role.speed + game.speedBonus + speedBuff;
+    let speed = player.role.speed + game.speedBonus + speedBuff;
+    if (player.blockTimer > 0) speed *= 0.35;
     player.x += dx * speed * dt;
     player.y += dy * speed * dt;
     keepActorInBounds(player, PLAYER_BOUNDS);
@@ -779,6 +835,21 @@
 
     player.attackCooldown = Math.max(0, player.attackCooldown - dt);
     player.attackTimer = Math.max(0, player.attackTimer - dt);
+    player.comboWindow = Math.max(0, player.comboWindow - dt);
+    if (player.comboWindow <= 0 && player.attackTimer <= 0) {
+      player.attackStep = 0;
+    }
+    if (player.blockTimer > 0) {
+      player.blockTimer = Math.max(0, player.blockTimer - dt);
+      player.blockJustStarted += dt;
+      if (player.blockTimer <= 0 && player.blockWasActive) {
+        player.blockCooldown = BLOCK_COOLDOWN;
+        player.blockWasActive = false;
+      }
+    } else {
+      player.blockCooldown = Math.max(0, player.blockCooldown - dt);
+      player.blockWasActive = false;
+    }
     player.specialCooldown = Math.max(0, player.specialCooldown - dt);
     player.dashTime = Math.max(0, player.dashTime - dt);
     player.dashInputLock = Math.max(0, player.dashInputLock - dt);
@@ -823,6 +894,12 @@
       enemy.attackTimer = Math.max(0, enemy.attackTimer - dt);
       enemy.recoveryTimer = Math.max(0, enemy.recoveryTimer - dt);
       enemy.hurt = Math.max(0, enemy.hurt - dt);
+      if (enemy.stunTimer && enemy.stunTimer > 0) {
+        enemy.stunTimer = Math.max(0, enemy.stunTimer - dt);
+      }
+      if (enemy.staggerTimer && enemy.staggerTimer > 0) {
+        enemy.staggerTimer = Math.max(0, enemy.staggerTimer - dt);
+      }
       if (previousAttackTimer > 0 && enemy.attackTimer <= 0) {
         enemy.recoveryTimer = Math.max(enemy.recoveryTimer, attackProfile.recovery);
       }
@@ -845,6 +922,18 @@
 
       if (updateDaimyoCharge(enemy, player, dt, nx, ny, distance)) {
         continue;
+      }
+
+      if (enemy.boss) {
+        enemy.bossChargeCooldown = Math.max(0, (enemy.bossChargeCooldown || 0) - dt);
+        enemy.bossStunTimer = Math.max(0, (enemy.bossStunTimer || 0) - dt);
+        if (updateBossCharge(enemy, player, dt, nx, ny, distance)) {
+          continue;
+        }
+        if (shouldStartBossCharge(enemy, distance)) {
+          startBossCharge(enemy, player, nx, ny);
+          continue;
+        }
       }
 
       resolveEnemyAttackHit(enemy, player, attackProfile);
@@ -969,6 +1058,117 @@
     return false;
   }
 
+  function shouldStartBossCharge(enemy, distance) {
+    if (!enemy.boss) return false;
+    if (enemy.bossChargeState && enemy.bossChargeState !== "idle") return false;
+    if (enemy.attackTimer > 0 || enemy.recoveryTimer > 0 || enemy.hurt > 0) return false;
+    if ((enemy.bossChargeCooldown || 0) > 0) return false;
+    if (state.game.bossIntroTimer > 0) return false;
+    if (distance < 150 || distance > 620) return false;
+    return Math.random() < 0.45;
+  }
+
+  function startBossCharge(enemy, player, nx, ny) {
+    enemy.bossChargeState = "windup";
+    enemy.bossChargeTimer = 0.7;
+    enemy.bossChargeDirX = nx;
+    enemy.bossChargeDirY = ny;
+    enemy.bossChargeTargetX = player.x;
+    enemy.bossChargeTargetY = player.y;
+    enemy.bossChargeHitDone = false;
+    enemy.attackDirX = nx;
+    enemy.attackDirY = ny;
+    enemy.dirX = nx;
+    enemy.dirY = ny;
+    enemy.cooldown = Math.max(enemy.cooldown, 1.4);
+    enemy.vx *= 0.1;
+    enemy.vy *= 0.1;
+    enemy.moving = false;
+    addFloater("将军突进！", enemy.x, enemy.y - 168, COLORS.red, 1.05);
+    addEffect("attackFlash", enemy.x + nx * 56, enemy.y - 30 + ny * 22, COLORS.red, Math.atan2(ny, nx));
+    addEffect("specialAura", enemy.x, enemy.y - 30, enemy.rankInfo.color);
+  }
+
+  function updateBossCharge(enemy, player, dt, nx, ny, distance) {
+    if (!enemy.boss || !enemy.bossChargeState || enemy.bossChargeState === "idle") return false;
+    enemy.bossChargeTimer = Math.max(0, enemy.bossChargeTimer - dt);
+
+    if (enemy.bossChargeState === "windup") {
+      enemy.moving = false;
+      enemy.vx *= 0.16;
+      enemy.vy *= 0.16;
+      enemy.attackDirX = enemy.bossChargeDirX;
+      enemy.attackDirY = enemy.bossChargeDirY;
+      enemy.dirX = enemy.attackDirX;
+      enemy.dirY = enemy.attackDirY;
+      if (enemy.bossChargeTimer <= 0) {
+        const dx = player.x - enemy.x;
+        const dy = player.y - enemy.y;
+        const length = Math.max(1, Math.hypot(dx, dy));
+        enemy.bossChargeDirX = dx / length;
+        enemy.bossChargeDirY = dy / length;
+        enemy.attackDirX = enemy.bossChargeDirX;
+        enemy.attackDirY = enemy.bossChargeDirY;
+        enemy.bossChargeState = "dash";
+        enemy.bossChargeTimer = 0.46;
+        addEffect("dashLine", enemy.x, enemy.y - 30, enemy.rankInfo.color, Math.atan2(enemy.bossChargeDirY, enemy.bossChargeDirX));
+        triggerScreenShake(10, 0.12);
+      }
+      return true;
+    }
+
+    if (enemy.bossChargeState === "dash") {
+      enemy.moving = true;
+      const speed = 620;
+      enemy.x += enemy.bossChargeDirX * speed * dt;
+      enemy.y += enemy.bossChargeDirY * speed * dt * 0.78;
+      keepActorInBounds(enemy, BOSS_BOUNDS);
+      if (!enemy.bossChargeHitDone && Math.hypot(player.x - enemy.x, player.y - enemy.y) < player.radius + enemy.radius + 12) {
+        enemy.bossChargeHitDone = true;
+        if (player.invuln > 0) {
+          addFloater("闪避!", player.x, player.y - 58, COLORS.blue, 0.55);
+          addEffect("guardFlash", player.x, player.y - 28, COLORS.blue);
+        } else {
+          damagePlayer(enemy.damage + 12, enemy);
+          addEffect("bossShockwave", player.x, player.y - 20, COLORS.red, Math.atan2(enemy.bossChargeDirY, enemy.bossChargeDirX));
+          addEffect("burst", player.x, player.y - 18, COLORS.gold);
+          triggerScreenShake(24, 0.28);
+        }
+      }
+      if (enemy.bossChargeTimer <= 0) {
+        enemy.bossChargeState = "stun";
+        enemy.bossChargeTimer = 3;
+        enemy.bossStunTimer = 3;
+        enemy.recoveryTimer = Math.max(enemy.recoveryTimer, 3);
+        enemy.cooldown = Math.max(enemy.cooldown, 3);
+        enemy.attackTimer = 0;
+        enemy.vx = enemy.bossChargeDirX * 60;
+        enemy.vy = enemy.bossChargeDirY * 38;
+        addEffect("specialAura", enemy.x, enemy.y - 30, COLORS.gold);
+        addEffect("burst", enemy.x, enemy.y - 30, COLORS.gold);
+        triggerScreenShake(14, 0.18);
+      }
+      return true;
+    }
+
+    if (enemy.bossChargeState === "stun") {
+      enemy.moving = false;
+      enemy.vx *= 0.82;
+      enemy.vy *= 0.82;
+      enemy.attackTimer = 0;
+      enemy.recoveryTimer = Math.max(enemy.recoveryTimer, enemy.bossChargeTimer);
+      if (enemy.bossChargeTimer <= 0) {
+        enemy.bossChargeState = "idle";
+        enemy.bossStunTimer = 0;
+        enemy.bossChargeCooldown = 7 + Math.random() * 4;
+      }
+      return true;
+    }
+
+    enemy.bossChargeState = "idle";
+    return false;
+  }
+
   function resolveEnemyAttackHit(enemy, player, profile) {
     if (enemy.attackTimer <= 0 || enemy.attackHitDone) return;
     const progress = 1 - enemy.attackTimer / (enemy.attackDuration || profile.duration);
@@ -984,14 +1184,20 @@
       addEffect("enemySpark", player.x, player.y - 28, enemy.rankInfo.color, Math.atan2(enemy.attackDirY, enemy.attackDirX));
       if (enemy.boss) {
         addEffect("bossShockwave", player.x, player.y - 20, enemy.rankInfo.color, Math.atan2(enemy.attackDirY, enemy.attackDirX));
-        triggerScreenShake(18, 0.22);
+        addEffect("bossSmash", player.x, player.y - 12, COLORS.red, Math.atan2(enemy.attackDirY, enemy.attackDirX));
+        addEffect("burst", player.x, player.y - 16, COLORS.gold);
+        triggerScreenShake(26, 0.32);
       }
     } else {
       addEffect("swing", enemy.x + enemy.attackDirX * 38, enemy.y - 26 + enemy.attackDirY * 20, enemy.rankInfo.color, Math.atan2(enemy.attackDirY, enemy.attackDirX));
       addEffect("enemySpark", enemy.x + enemy.attackDirX * 54, enemy.y - 28 + enemy.attackDirY * 28, enemy.rankInfo.color, Math.atan2(enemy.attackDirY, enemy.attackDirX));
       if (enemy.boss) {
-        addEffect("bossShockwave", enemy.x + enemy.attackDirX * 76, enemy.y - 24 + enemy.attackDirY * 46, enemy.rankInfo.color, Math.atan2(enemy.attackDirY, enemy.attackDirX));
-        triggerScreenShake(12, 0.18);
+        const slamX = enemy.x + enemy.attackDirX * 92;
+        const slamY = enemy.y - 18 + enemy.attackDirY * 52;
+        addEffect("bossShockwave", slamX, slamY, enemy.rankInfo.color, Math.atan2(enemy.attackDirY, enemy.attackDirX));
+        addEffect("bossSmash", slamX, slamY, COLORS.gold, Math.atan2(enemy.attackDirY, enemy.attackDirX));
+        addEffect("burst", slamX, slamY, enemy.rankInfo.color);
+        triggerScreenShake(20, 0.26);
       }
     }
   }
@@ -1202,9 +1408,47 @@
       projectile.x += projectile.vx * dt;
       projectile.y += projectile.vy * dt;
       projectile.spin += projectile.spinSpeed * dt;
+      if (projectile.fromPlayer) {
+        for (const enemy of game.enemies) {
+          if (enemy.hp <= 0) continue;
+          const eDist = Math.hypot(projectile.x - enemy.x, projectile.y - (enemy.y - 22));
+          if (eDist < enemy.radius + projectile.radius) {
+            const dmg = Math.max(1, Math.round(projectile.damage));
+            enemy.hp -= dmg;
+            enemy.hurt = enemy.boss ? 0.18 : 0.32;
+            enemy.vx += projectile.dirX * (enemy.boss ? 90 : 220);
+            enemy.vy += projectile.dirY * (enemy.boss ? 60 : 140);
+            addFloater(`-${dmg}`, enemy.x, enemy.y - 46, COLORS.gold, 0.6);
+            addEffect("playerSlashImpact", enemy.x, enemy.y - 28, COLORS.gold, Math.atan2(projectile.dirY, projectile.dirX));
+            addEffect("burst", enemy.x, enemy.y - 22, COLORS.gold);
+            projectile.hit = true;
+            if (enemy.hp <= 0) defeatEnemy(enemy);
+            break;
+          }
+        }
+        continue;
+      }
       const bodyY = player.y - 22;
       const distance = Math.hypot(projectile.x - player.x, projectile.y - bodyY);
       if (distance < player.radius + projectile.radius) {
+        if (player.blockTimer > 0 && player.blockJustStarted <= BLOCK_PERFECT_WINDOW && player.invuln <= 0) {
+          // Perfect-block reflect: reverse velocity, mark as player-owned, boost damage.
+          projectile.vx = -projectile.vx * 1.4;
+          projectile.vy = -projectile.vy * 1.4;
+          projectile.dirX = -projectile.dirX;
+          projectile.dirY = -projectile.dirY;
+          projectile.fromPlayer = true;
+          projectile.damage = Math.round(projectile.damage * 1.6);
+          addFloater("反弹!", player.x, player.y - 58, COLORS.gold, 0.9);
+          addEffect("guardFlash", player.x, player.y - 28, COLORS.gold);
+          addEffect("burst", player.x, player.y - 24, COLORS.gold);
+          triggerScreenShake(8, 0.12);
+          player.invuln = 0.3;
+          player.blockCooldown = 0;
+          player.blockTimer = 0;
+          player.blockWasActive = false;
+          continue;
+        }
         projectile.hit = true;
         damagePlayer(projectile.damage, {
           x: projectile.x - projectile.dirX * 46,
@@ -1240,6 +1484,38 @@
     game.drops = game.drops.filter((drop) => !drop.collected && drop.life > 0);
   }
 
+  function updateShrines(dt) {
+    const game = state.game;
+    if (!game.shrines || game.shrines.length === 0) return;
+    for (const shrine of game.shrines) {
+      shrine.hurt = Math.max(0, shrine.hurt - dt);
+    }
+  }
+
+  function damageShrine(shrine, damage) {
+    if (!shrine || shrine.destroyed) return;
+    const dealt = Math.max(1, Math.round(damage));
+    shrine.hp -= dealt;
+    shrine.hurt = 0.32;
+    addFloater(`-${dealt}`, shrine.x, shrine.y - 36, "#a3aabe", 0.5);
+    addEffect("hit", shrine.x, shrine.y - 6, "#caa473");
+    if (shrine.hp <= 0) {
+      breakShrine(shrine);
+    }
+  }
+
+  function breakShrine(shrine) {
+    const game = state.game;
+    shrine.destroyed = true;
+    shrine.hurt = 0;
+    addFloater("神龛破！", shrine.x, shrine.y - 60, COLORS.gold, 1);
+    addEffect("burst", shrine.x, shrine.y - 8, "#dcc88f");
+    addEffect("specialAura", shrine.x, shrine.y - 8, COLORS.gold);
+    triggerScreenShake(14, 0.22);
+    game.drops.push({ type: "dango", x: shrine.x, y: shrine.y, life: 14, bob: 0 });
+    addFloater("回血!", shrine.x, shrine.y - 80, COLORS.green, 0.85);
+  }
+
   function damagePlayer(amount, enemy) {
     const game = state.game;
     const player = game.player;
@@ -1251,20 +1527,44 @@
       addEffect("guardFlash", player.x, player.y - 28, COLORS.blue);
       return;
     }
-    const damage = Math.ceil(amount * game.damageTakenMult);
+    let blockMult = 1;
+    let blockKnock = 1;
+    if (player.blockTimer > 0) {
+      const perfect = player.blockJustStarted <= BLOCK_PERFECT_WINDOW;
+      if (perfect) {
+        addFloater("完美格挡!", player.x, player.y - 58, COLORS.gold, 0.95);
+        addEffect("guardFlash", player.x, player.y - 28, COLORS.gold);
+        addEffect("burst", player.x, player.y - 24, COLORS.gold);
+        triggerScreenShake(8, 0.12);
+        player.invuln = 0.3;
+        player.blockCooldown = 0;
+        player.blockTimer = 0;
+        player.blockWasActive = false;
+        applyBlockStagger(enemy, 0.9);
+        return;
+      }
+      blockMult = 0.5;
+      blockKnock = 0.5;
+      addFloater("格挡", player.x, player.y - 58, COLORS.blue, 0.7);
+      addEffect("guardFlash", player.x, player.y - 28, COLORS.blue);
+      applyBlockStagger(enemy, 0.35);
+    }
+    const damage = Math.max(1, Math.ceil(amount * game.damageTakenMult * blockMult));
     player.hp -= damage;
     player.hurt = 0.38;
     player.invuln = 0.55;
-    const pushDistance = Math.max(1, Math.hypot(player.x - enemy.x, player.y - enemy.y));
-    const pushX = (player.x - enemy.x) / pushDistance;
-    const pushY = (player.y - enemy.y) / pushDistance;
-    player.x += pushX * 16;
-    player.y += pushY * 10;
+    const ex = enemy && Number.isFinite(enemy.x) ? enemy.x : player.x;
+    const ey = enemy && Number.isFinite(enemy.y) ? enemy.y : player.y;
+    const pushDistance = Math.max(1, Math.hypot(player.x - ex, player.y - ey));
+    const pushX = (player.x - ex) / pushDistance;
+    const pushY = (player.y - ey) / pushDistance;
+    player.x += pushX * 16 * blockKnock;
+    player.y += pushY * 10 * blockKnock;
     keepActorInBounds(player, PLAYER_BOUNDS);
-    triggerScreenShake(15, 0.18);
-    addEffect("playerHit", player.x, player.y - 32, COLORS.red, Math.atan2(pushY, pushX));
-    addEffect("impactRing", player.x, player.y - 26, COLORS.red);
-    addFloater(`-${damage}`, player.x, player.y - 52, COLORS.red, 0.65);
+    triggerScreenShake(blockMult < 1 ? 9 : 15, 0.18);
+    addEffect("playerHit", player.x, player.y - 32, blockMult < 1 ? COLORS.blue : COLORS.red, Math.atan2(pushY, pushX));
+    addEffect("impactRing", player.x, player.y - 26, blockMult < 1 ? COLORS.blue : COLORS.red);
+    addFloater(`-${damage}`, player.x, player.y - 52, blockMult < 1 ? COLORS.blue : COLORS.red, 0.65);
   }
 
   function attackWithPlayer(target) {
@@ -1272,6 +1572,9 @@
     if (!game || state.scene !== "playing") return;
     const player = game.player;
     if (player.attackCooldown > 0) return;
+    if (player.blockTimer > 0) return;
+    if (player.comboWindow <= 0) player.attackStep = 0;
+    const combo = ATTACK_COMBO[player.attackStep];
     if (target) {
       const dx = target.x - player.x;
       const dy = target.y - player.y;
@@ -1283,26 +1586,57 @@
         setPlayerAim(player, nearest.x - player.x, nearest.y - player.y);
       }
     }
-    player.attackCooldown = Math.max(0.18, player.role.cooldown - game.rebelLevel * 0.015);
+    const baseCd = Math.max(0.18, player.role.cooldown - game.rebelLevel * 0.015);
+    player.attackCooldown = baseCd * combo.cooldownMult;
     player.attackDirX = player.aimX;
     player.attackDirY = player.aimY;
-    player.attackDuration = 0.75;
-    player.attackTimer = player.attackDuration;
-    const range = player.role.range + game.rangeBonus;
+    player.attackDuration = combo.duration;
+    player.attackTimer = combo.duration;
+    player.attackComboStep = player.attackStep;
+    const range = (player.role.range + game.rangeBonus) * combo.rangeMult;
+    const damageMult = combo.damageMult;
     let hitCount = 0;
     for (const enemy of game.enemies) {
       const dx = enemy.x - player.x;
       const dy = enemy.y - player.y;
       const distance = Math.hypot(dx, dy);
       const dot = (dx * player.aimX + dy * player.aimY) / Math.max(1, distance);
-      if (distance <= range + enemy.radius && dot > 0.08) {
-        hitEnemy(enemy, player, distance);
+      if (distance <= range + enemy.radius && dot > combo.cone) {
+        hitEnemy(enemy, player, distance, damageMult);
         hitCount += 1;
+      }
+    }
+    if (game.shrines) {
+      for (const shrine of game.shrines) {
+        if (shrine.destroyed) continue;
+        const dx = shrine.x - player.x;
+        const dy = shrine.y - player.y;
+        const distance = Math.hypot(dx, dy);
+        const dot = (dx * player.aimX + dy * player.aimY) / Math.max(1, distance);
+        if (distance <= range + shrine.radius && dot > combo.cone) {
+          damageShrine(shrine, player.role.attack * game.attackMult * damageMult * 0.6);
+          hitCount += 1;
+        }
       }
     }
     const sx = player.x + player.attackDirX * 45;
     const sy = player.y + player.attackDirY * 28 - 18;
     addEffect(hitCount > 0 ? "slash" : "swing", sx, sy, player.role.color, Math.atan2(player.attackDirY, player.attackDirX));
+
+    if (player.attackStep === ATTACK_COMBO.length - 1) {
+      // Finisher: forward lunge + extra screen shake + burst flourish
+      player.x += player.attackDirX * 14;
+      player.y += player.attackDirY * 8;
+      keepActorInBounds(player, PLAYER_BOUNDS);
+      addEffect("burst", sx, sy, COLORS.gold);
+      addEffect("impactRing", player.x, player.y - 22, player.role.color);
+      triggerScreenShake(12, 0.18);
+      player.comboWindow = 0;
+      player.attackStep = 0;
+    } else {
+      player.comboWindow = COMBO_WINDOW;
+      player.attackStep += 1;
+    }
   }
 
   function useSpecialSkill() {
@@ -1334,7 +1668,8 @@
 
   function useHachiwareSpecial(game, player) {
     let hitCount = 0;
-    const radius = 158 + game.rangeBonus * 0.8;
+    const radius = 210 + game.rangeBonus * 0.9;
+    const stunDuration = 1.8;
     for (const enemy of [...game.enemies]) {
       const dx = enemy.x - player.x;
       const dy = enemy.y - player.y;
@@ -1342,20 +1677,52 @@
       if (distance > radius + enemy.radius) continue;
       const damage = Math.round((22 + player.role.attack * 0.72) * game.attackMult);
       enemy.hp -= damage;
-      enemy.hurt = 0.45;
-      enemy.recoveryTimer = Math.max(enemy.recoveryTimer || 0, enemy.boss ? 0.45 : 0.9);
-      enemy.vx += dx / Math.max(1, distance) * 210;
-      enemy.vy += dy / Math.max(1, distance) * 130;
+      enemy.hurt = 0.5;
+      const dist = Math.max(1, distance);
+      const knockX = (dx / dist);
+      const knockY = (dy / dist);
+      if (enemy.boss) {
+        enemy.recoveryTimer = Math.max(enemy.recoveryTimer || 0, 0.55);
+        enemy.bossStunTimer = Math.max(enemy.bossStunTimer || 0, 0.6);
+        enemy.vx += knockX * 140;
+        enemy.vy += knockY * 90;
+      } else {
+        enemy.stunTimer = Math.max(enemy.stunTimer || 0, stunDuration);
+        enemy.recoveryTimer = Math.max(enemy.recoveryTimer || 0, stunDuration);
+        enemy.attackTimer = 0;
+        enemy.attackHitDone = true;
+        enemy.cooldown = Math.max(enemy.cooldown || 0, stunDuration + 0.3);
+        if (enemy.chargeState && enemy.chargeState !== "idle") {
+          enemy.chargeState = "idle";
+          enemy.chargeTimer = 0;
+        }
+        enemy.vx += knockX * 320;
+        enemy.vy += knockY * 200;
+      }
       hitCount += 1;
       addFloater(`-${damage}`, enemy.x, enemy.y - 48, COLORS.blue, 0.6);
       addEffect("hit", enemy.x, enemy.y - 30, COLORS.blue);
       if (enemy.hp <= 0) defeatEnemy(enemy);
     }
-    addFloater(hitCount > 0 ? "友情连携!" : "友情鼓舞", player.x, player.y - 74, COLORS.blue, 0.9);
+    if (game.shrines) {
+      for (const shrine of [...game.shrines]) {
+        if (shrine.destroyed) continue;
+        const dx = shrine.x - player.x;
+        const dy = shrine.y - player.y;
+        const distance = Math.hypot(dx, dy);
+        if (distance > radius + shrine.radius) continue;
+        const damage = Math.round((22 + player.role.attack * 0.72) * game.attackMult * 0.7);
+        damageShrine(shrine, damage);
+      }
+    }
+    addFloater(hitCount > 0 ? "友情震波!" : "友情鼓舞", player.x, player.y - 74, COLORS.blue, 0.9);
+    addEffect("hachiwareBlast", player.x, player.y - 28, COLORS.blue);
     addEffect("hachiwareChord", player.x, player.y - 30, COLORS.blue);
     addEffect("specialAura", player.x, player.y - 26, COLORS.blue);
     addEffect("bossShockwave", player.x, player.y - 24, COLORS.blue);
-    triggerScreenShake(hitCount > 0 ? 14 : 7, 0.18);
+    addEffect("impactRing", player.x, player.y - 18, COLORS.blue);
+    addEffect("burst", player.x, player.y - 24, COLORS.gold);
+    triggerScreenShake(hitCount > 0 ? 22 : 10, 0.28);
   }
 
   function useUsagiSpecial(game, player) {
@@ -1400,11 +1767,11 @@
     return nearest;
   }
 
-  function hitEnemy(enemy, player, distance) {
+  function hitEnemy(enemy, player, distance, comboMult = 1) {
     const game = state.game;
     const highRankBonus = enemy.rank > player.rank ? 1 + game.rebelLevel * 0.16 + (enemy.rank - player.rank) * 0.06 : 1;
     const openingBonus = getEnemyOpeningDamageMultiplier(enemy);
-    const damage = Math.round(player.role.attack * game.attackMult * highRankBonus * openingBonus);
+    const damage = Math.round(player.role.attack * game.attackMult * highRankBonus * openingBonus * comboMult);
     enemy.hp -= damage;
     enemy.hurt = enemy.boss ? 0.18 : 0.25;
     const knockback = enemy.boss ? 0.22 : 1;
@@ -1424,16 +1791,33 @@
   }
 
   function getEnemyOpeningDamageMultiplier(enemy) {
-    const vulnerable = enemy.recoveryTimer > 0 || (enemy.attackTimer > 0 && enemy.attackHitDone);
-    if (enemy.boss) return vulnerable ? 1.9 : 0.58;
+    const vulnerable = (enemy.staggerTimer || 0) > 0;
+    if (enemy.boss) return vulnerable ? 1.9 : 0.85;
     if (vulnerable) return enemy.rank >= 4 ? 1.65 : enemy.rank >= 3 ? 1.42 : 1.18;
-    if (enemy.rank >= 4) return 0.72;
-    if (enemy.rank === 3) return 0.86;
+    if (enemy.rank >= 4) return 0.92;
+    if (enemy.rank === 3) return 0.96;
     return 1;
+  }
+
+  function applyBlockStagger(enemy, duration) {
+    if (!enemy || enemy.recoveryTimer === undefined) return;
+    enemy.staggerTimer = Math.max(enemy.staggerTimer || 0, duration);
+    enemy.recoveryTimer = Math.max(enemy.recoveryTimer || 0, duration);
+    enemy.attackTimer = 0;
+    enemy.attackHitDone = true;
+    if (enemy.chargeState && enemy.chargeState !== "idle") {
+      enemy.chargeState = "idle";
+      enemy.chargeTimer = 0;
+    }
+    addFloater("破绽!", enemy.x, enemy.y - 60, COLORS.red, 0.65);
   }
 
   function defeatEnemy(enemy) {
     const game = state.game;
+    if (enemy.boss && enemy.bossPhase < enemy.bossPhaseMax) {
+      enterBossNextPhase(enemy);
+      return;
+    }
     const player = game.player;
     const multiplier = calculateMultiplier(player.rank, enemy.rank);
     const points = Math.round(enemy.rankInfo.score * multiplier * game.scoreMult);
@@ -1456,6 +1840,57 @@
     maybeDropItem(enemy);
   }
 
+  function enterBossNextPhase(boss) {
+    boss.bossPhase += 1;
+    boss.hp = boss.phaseMaxHp;
+    boss.attackTimer = 0;
+    boss.attackHitDone = true;
+    boss.recoveryTimer = 1.1;
+    boss.cooldown = Math.max(boss.cooldown, 1.5);
+    boss.hurt = 0.4;
+    boss.chargeState = "idle";
+    boss.bossChargeState = "idle";
+    boss.bossChargeTimer = 0;
+    boss.bossStunTimer = 0;
+    boss.bossChargeCooldown = 4 + Math.random() * 2.5;
+    boss.vx = 0;
+    boss.vy = 0;
+    addFloater("第二段！", boss.x, boss.y - 158, COLORS.red, 1.4);
+    addEffect("bossShockwave", boss.x, boss.y - 36, COLORS.red);
+    addEffect("burst", boss.x, boss.y - 24, COLORS.gold);
+    addEffect("specialAura", boss.x, boss.y - 30, COLORS.red);
+    triggerScreenShake(24, 0.42);
+    spawnBossMinions();
+  }
+
+  const BOSS_MINION_RANK_POOL = [2, 3, 4];
+
+  function spawnBossMinions() {
+    const game = state.game;
+    const guaranteedIndex = Math.random() < 0.5 ? 0 : 1;
+    const boss = game.boss;
+    const anchorX = boss ? boss.x : WIDTH / 2;
+    const anchorY = boss ? boss.y : 320;
+    const sideOffset = 130 + Math.random() * 30;
+    const positions = [
+      { x: anchorX - sideOffset, y: anchorY + (Math.random() * 60 - 30) },
+      { x: anchorX + sideOffset, y: anchorY + (Math.random() * 60 - 30) },
+    ];
+    positions.forEach((pos, i) => {
+      const rank = BOSS_MINION_RANK_POOL[Math.floor(Math.random() * BOSS_MINION_RANK_POOL.length)];
+      const minion = createEnemy(rank);
+      minion.x = clamp(pos.x, ENEMY_BOUNDS.minX + 24, ENEMY_BOUNDS.maxX - 24);
+      minion.y = clamp(pos.y, ENEMY_BOUNDS.minY, ENEMY_BOUNDS.maxY);
+      minion.vx = 0;
+      minion.vy = 0;
+      minion.bossMinion = true;
+      minion.guaranteedHealDrop = i === guaranteedIndex;
+      game.enemies.push(minion);
+      addEffect("burst", minion.x, minion.y - 20, minion.rankInfo.color);
+    });
+    addFloater("援军参上！", WIDTH / 2, 188, RANKS[2].color, 1.1);
+  }
+
   function calculateMultiplier(playerRank, enemyRank) {
     if (enemyRank > playerRank) {
       return 1 + (enemyRank - playerRank) * 0.72 + state.game.rebelLevel * 0.18;
@@ -1466,6 +1901,11 @@
 
   function maybeDropItem(enemy) {
     const game = state.game;
+    if (enemy.guaranteedHealDrop) {
+      game.drops.push({ type: "dango", x: enemy.x, y: enemy.y, life: 12, bob: Math.random() * 10 });
+      addFloater("回血!", enemy.x, enemy.y - 70, COLORS.green, 0.85);
+      return;
+    }
     const chance = 0.42 + Math.min(0.25, enemy.rank * 0.05);
     if (Math.random() > chance) return;
     const table = [
@@ -1514,11 +1954,25 @@
     return items[0].type;
   }
 
+  function tryStartBlock() {
+    const game = state.game;
+    if (!game || state.scene !== "playing") return;
+    const player = game.player;
+    if (player.hp <= 0 || game.bossIntroTimer > 0) return;
+    if (player.blockTimer > 0 || player.blockCooldown > 0) return;
+    if (player.dashTime > 0 || player.attackTimer > 0) return;
+    player.blockTimer = BLOCK_DURATION;
+    player.blockJustStarted = 0;
+    player.blockWasActive = true;
+    addEffect("guardFlash", player.x, player.y - 28, COLORS.blue);
+  }
+
   function dashPlayer() {
     const game = state.game;
     if (!game || state.scene !== "playing") return;
     const player = game.player;
     if (player.dashCharges <= 0 || player.dashInputLock > 0) return;
+    if (player.blockTimer > 0) return;
     const left = state.keys.has("a") || state.keys.has("arrowleft");
     const right = state.keys.has("d") || state.keys.has("arrowright");
     const up = state.keys.has("w") || state.keys.has("arrowup");
@@ -1682,8 +2136,9 @@
               : type === "bossAxeThrow" ? 0.46
                 : type === "specialAura" ? 0.86
                   : type === "usagiBurst" ? 0.58
-                    : type === "hachiwareChord" ? 0.72
-                      : type === "chiikawaGuard" ? 0.82
+                    : type === "hachiwareBlast" ? 0.95
+                      : type === "hachiwareChord" ? 0.72
+                        : type === "chiikawaGuard" ? 0.82
                         : type === "attackFlash" || type === "enemySpark" ? 0.34
                           : type === "shurikenThrow" || type === "shurikenHit" || type === "playerSlashImpact" ? 0.36
                             : 0.32;
@@ -2235,16 +2690,91 @@
     drawBossHealthBar(game);
     drawDashCooldown(player);
     drawSpecialCooldown(player);
+    drawBlockCooldown(player);
     if (player.shields > 0) {
       drawText(`御守 x${player.shields}`, 536, 96, 18, COLORS.blue, "left", "bold");
     }
     drawAvatarBadge();
   }
 
+  function drawBlockCooldown(player) {
+    const x = 36;
+    const y = 110;
+    const w = 128;
+    const h = 42;
+    const blocking = player.blockTimer > 0;
+    const perfectWindow = blocking && player.blockJustStarted <= BLOCK_PERFECT_WINDOW;
+    const cooling = !blocking && player.blockCooldown > 0;
+    const ready = !blocking && !cooling;
+    const color = perfectWindow ? COLORS.gold : COLORS.blue;
+    state.buttons.push({ x, y, w, h, onClick: tryStartBlock });
+    ctx.save();
+    ctx.fillStyle = "rgba(255,249,239,0.92)";
+    ctx.strokeStyle = ready ? color : (blocking ? color : "rgba(67,54,56,0.5)");
+    ctx.lineWidth = perfectWindow ? 4 : 3;
+    roundRect(x, y, w, h, 8);
+    ctx.fill();
+    ctx.stroke();
+    const centerX = x + 22;
+    const centerY = y + h / 2;
+    ctx.fillStyle = ready ? withAlpha(color, 0.9) : (blocking ? withAlpha(color, 0.95) : "rgba(123,107,103,0.55)");
+    ctx.beginPath();
+    ctx.arc(centerX, centerY, 15, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = "rgba(67,54,56,0.5)";
+    ctx.lineWidth = 2;
+    ctx.stroke();
+    if (cooling) {
+      const ratio = 1 - clamp(player.blockCooldown / BLOCK_COOLDOWN, 0, 1);
+      ctx.strokeStyle = COLORS.blue;
+      ctx.lineWidth = 4;
+      ctx.beginPath();
+      ctx.arc(centerX, centerY, 18, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * ratio);
+      ctx.stroke();
+      ctx.fillStyle = "rgba(67,54,56,0.4)";
+      ctx.beginPath();
+      ctx.arc(centerX, centerY, 15, 0, Math.PI * 2);
+      ctx.fill();
+      drawText(player.blockCooldown.toFixed(1), centerX, centerY + 1, 13, "#fffaf0", "center", "bold");
+    } else {
+      // Draw a tiny shield glyph
+      ctx.fillStyle = "#fff8e0";
+      ctx.strokeStyle = "rgba(67,54,56,0.7)";
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.moveTo(centerX, centerY - 9);
+      ctx.lineTo(centerX + 8, centerY - 4);
+      ctx.lineTo(centerX + 8, centerY + 3);
+      ctx.quadraticCurveTo(centerX + 8, centerY + 9, centerX, centerY + 11);
+      ctx.quadraticCurveTo(centerX - 8, centerY + 9, centerX - 8, centerY + 3);
+      ctx.lineTo(centerX - 8, centerY - 4);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+    }
+    drawText("格挡", x + 74, y + 16, 15, COLORS.ink, "center", "bold");
+    drawText("空格 / 右键", x + 74, y + 32, 11, ready ? color : COLORS.muted, "center", "bold");
+    ctx.restore();
+  }
+
+  const BOSS_PHASE_COLORS = ["#e8eef2", "#e6bd4e", "#c44a44"];
+
+  function getBossPhaseColor(phase, phaseMax) {
+    const colors = BOSS_PHASE_COLORS;
+    const last = colors.length - 1;
+    if (!phase || phase < 1) return colors[0];
+    const total = Math.max(1, phaseMax || 1);
+    if (total <= 1) return colors[last];
+    const t = clamp((phase - 1) / (total - 1), 0, 1);
+    return colors[Math.round(t * last)];
+  }
+
   function drawBossHealthBar(game) {
     const boss = game.boss;
     if (!boss || (!game.bossStarted && !game.bossDefeated)) return;
-    const ratio = clamp(boss.hp / boss.maxHp, 0, 1);
+    const phase = boss.bossPhase || 1;
+    const phaseMax = boss.bossPhaseMax || 1;
+    const ratio = clamp(boss.hp / (boss.phaseMaxHp || boss.maxHp), 0, 1);
     const x = 386;
     const y = 104;
     const w = 486;
@@ -2257,11 +2787,13 @@
     ctx.lineWidth = 3;
     ctx.stroke();
     drawText("大将军", x, y - 1, 18, "#fff8e0", "left", "bold");
-    drawText("御殿 BOSS", x + w, y - 1, 14, COLORS.gold, "right", "bold");
-    ctx.fillStyle = "rgba(255,255,255,0.32)";
+    drawText(`御殿 BOSS · 第${phase}/${phaseMax}段`, x + w, y - 1, 14, COLORS.gold, "right", "bold");
+    const nextColor = phase < phaseMax ? getBossPhaseColor(phase + 1, phaseMax) : null;
+    ctx.fillStyle = nextColor || "rgba(255,255,255,0.32)";
     roundRect(x, y + 10, w, h, h / 2);
     ctx.fill();
-    ctx.fillStyle = ratio < 0.35 ? COLORS.red : COLORS.gold;
+    const fillColor = getBossPhaseColor(phase, phaseMax);
+    ctx.fillStyle = fillColor;
     roundRect(x + 4, y + 14, Math.max(0, (w - 8) * ratio), h - 8, h / 2);
     ctx.fill();
     ctx.strokeStyle = "rgba(255,248,220,0.8)";
@@ -2634,14 +3166,17 @@
     const frame = chooseActorFrame(player);
     const characterFrame = chooseCharacterFrame(player);
     const flip = chooseActorFlip(player);
-    const attackProgress = player.attackTimer > 0 ? clamp(1 - player.attackTimer / (player.attackDuration || 0.75), 0, 1) : 0;
+    const comboStep = player.attackTimer > 0 ? (player.attackComboStep || 0) : 0;
+    const comboCfg = ATTACK_COMBO[comboStep] || ATTACK_COMBO[0];
+    const attackProgress = player.attackTimer > 0 ? clamp(1 - player.attackTimer / (player.attackDuration || comboCfg.duration), 0, 1) : 0;
     const attackLunge = attackProgress > 0 ? Math.sin(attackProgress * Math.PI) : 0;
+    const finisher = comboStep === ATTACK_COMBO.length - 1 && player.attackTimer > 0;
     drawShadow(player.x, player.y, player.radius + 10, "rgba(58,48,50,0.18)");
     drawDashAfterimages(player, characterFrame, flip);
     drawPlayerHurtAura(player);
     const flicker = player.invuln > 0 && player.hurt <= 0 && player.dashTime <= 0 && Math.floor(performance.now() / 80) % 2 === 0;
     if (player.attackTimer > 0 && getActorFacing(player).y < -0.42) {
-      drawDirectionalAttack(player, 1.05, player.role.color);
+      drawDirectionalAttack(player, 1.05, player.role.color, comboStep);
     }
     if (!flicker) {
       if (characterFrame) {
@@ -2650,20 +3185,58 @@
         const stretch = player.dashTime > 0 ? 1 + 0.1 * Math.sin(dashProgress * Math.PI) : 1;
         const hurtPulse = player.hurt > 0 ? clamp(player.hurt / 0.38, 0, 1) : 0;
         const hurtKick = hurtPulse > 0 ? Math.sin(hurtPulse * Math.PI * 5) * 4 : 0;
+        const lungeMult = finisher ? 1.6 : (comboStep === 0 ? 0.6 : 1);
+        const blocking = player.blockTimer > 0;
         drawCharacterFrame(characterFrame, player.x, player.y + 18, 0.38, flip, {
-          rotation: dashLean + player.attackDirX * attackLunge * 0.13 + hurtPulse * (flip ? -0.12 : 0.12),
-          scaleX: stretch + attackLunge * 0.1 + hurtPulse * 0.12,
-          scaleY: 1 / stretch - attackLunge * 0.06 - hurtPulse * 0.08,
-          offsetX: hurtKick + player.attackDirX * attackLunge * 12,
-          offsetY: -hurtPulse * 7 + player.attackDirY * attackLunge * 7,
+          rotation: dashLean + player.attackDirX * attackLunge * 0.13 * lungeMult + hurtPulse * (flip ? -0.12 : 0.12) + (blocking ? (flip ? 0.06 : -0.06) : 0),
+          scaleX: stretch + attackLunge * 0.1 * lungeMult + hurtPulse * 0.12,
+          scaleY: 1 / stretch - attackLunge * 0.06 * lungeMult - hurtPulse * 0.08,
+          offsetX: hurtKick + player.attackDirX * attackLunge * 12 * lungeMult,
+          offsetY: -hurtPulse * 7 + player.attackDirY * attackLunge * 7 * lungeMult,
         });
       }
       else drawSprite(player.row, frame, player.x, player.y + 19, 0.39, flip);
     }
     if (player.attackTimer > 0 && getActorFacing(player).y >= -0.42) {
-      drawDirectionalAttack(player, 1.05, player.role.color);
+      drawDirectionalAttack(player, 1.05, player.role.color, comboStep);
     }
+    if (player.blockTimer > 0) drawBlockShield(player);
     drawRankTag(player.x, player.y - 74, player.role.name, player.role.color);
+  }
+
+  function drawBlockShield(player) {
+    const perfect = player.blockJustStarted <= BLOCK_PERFECT_WINDOW;
+    const facing = getActorFacing(player);
+    const angle = Math.atan2(facing.y, facing.x);
+    const ratio = clamp(player.blockTimer / BLOCK_DURATION, 0, 1);
+    const main = perfect ? COLORS.gold : COLORS.blue;
+    ctx.save();
+    ctx.translate(player.x + facing.x * 14, player.y - 22 + facing.y * 8);
+    ctx.rotate(angle);
+    ctx.lineCap = "round";
+    ctx.shadowBlur = perfect ? 22 : 12;
+    ctx.shadowColor = main;
+    ctx.globalAlpha = 0.32 + ratio * 0.18;
+    ctx.fillStyle = withAlpha(main, 0.35);
+    ctx.beginPath();
+    ctx.arc(0, 0, 30, -Math.PI * 0.55, Math.PI * 0.55);
+    ctx.lineTo(0, 0);
+    ctx.closePath();
+    ctx.fill();
+    ctx.globalAlpha = 0.85;
+    ctx.strokeStyle = main;
+    ctx.lineWidth = perfect ? 5 : 3.5;
+    ctx.beginPath();
+    ctx.arc(0, 0, 30, -Math.PI * 0.55, Math.PI * 0.55);
+    ctx.stroke();
+    if (perfect) {
+      ctx.strokeStyle = "rgba(255,255,255,0.9)";
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(0, 0, 22, -Math.PI * 0.45, Math.PI * 0.45);
+      ctx.stroke();
+    }
+    ctx.restore();
   }
 
   function drawPlayerHurtAura(player) {
@@ -2782,36 +3355,126 @@
     drawEnemyCrown(enemy);
     drawHealth(enemy.x - 34, enemy.y - 64, 68, 7, enemy.hp / enemy.maxHp, enemy.rankInfo.color);
     drawRankTag(enemy.x, enemy.y - 76, enemy.rankInfo.name, enemy.rankInfo.color, 0.82);
+    if ((enemy.stunTimer || 0) > 0) {
+      drawStunMarks(enemy.x, enemy.y - 86, clamp(enemy.stunTimer / 1.6, 0, 1), 18, 4);
+    }
   }
 
   function drawBossEnemy(enemy) {
     const enemyFrame = chooseEnemySpriteFrame(enemy);
     const flip = chooseActorFlip(enemy);
-    const attackProgress = enemy.attackTimer > 0 ? clamp(1 - enemy.attackTimer / (enemy.attackDuration || 0.74), 0, 1) : 0;
-    const attackLunge = attackProgress > 0 ? Math.sin(attackProgress * Math.PI) : 0;
-    const scale = 0.68 + (enemy.hp < enemy.maxHp * 0.45 ? 0.03 * Math.sin(performance.now() / 90) : 0);
+    const duration = enemy.attackDuration || 0.74;
+    const attackProgress = enemy.attackTimer > 0 ? clamp(1 - enemy.attackTimer / duration, 0, 1) : 0;
     const melee = enemy.attackTimer > 0 && enemy.attackKind === "melee";
-    drawShadow(enemy.x, enemy.y, 86, "rgba(34,25,25,0.28)");
+    const meleeProfile = getBossAttackProfile("melee");
+    const meleeHitAt = meleeProfile.hitAt || 0.55;
+    const windup = melee && attackProgress < meleeHitAt ? attackProgress / meleeHitAt : 0;
+    const followThrough = melee && attackProgress >= meleeHitAt
+      ? (attackProgress - meleeHitAt) / (1 - meleeHitAt)
+      : 0;
+    const pullback = windup > 0 ? Math.pow(windup, 0.7) * -0.6 : 0;
+    const slamPunch = followThrough > 0 ? Math.sin(followThrough * Math.PI) : 0;
+    const attackLunge = melee
+      ? pullback + slamPunch * 1.6
+      : (attackProgress > 0 ? Math.sin(attackProgress * Math.PI) : 0);
+    const scale = 0.68 + (enemy.hp < enemy.maxHp * 0.45 ? 0.03 * Math.sin(performance.now() / 90) : 0);
+    const stunSlump = enemy.bossStunTimer > 0 ? clamp(enemy.bossStunTimer / 3, 0, 1) : 0;
+    drawShadow(enemy.x, enemy.y, 86 + slamPunch * 22, "rgba(34,25,25,0.28)");
     drawEnemyAttackTell(enemy);
     drawBossAura(enemy);
+    if (melee) drawBossMeleeFx(enemy, windup, followThrough);
     if (melee && getActorFacing(enemy).y < -0.42) {
-      drawDirectionalAttack(enemy, 1.45, enemy.rankInfo.color);
+      drawDirectionalAttack(enemy, 1.85 + slamPunch * 0.35, enemy.rankInfo.color);
     }
     if (enemyFrame) {
       drawCharacterFrame(enemyFrame, enemy.x, enemy.y + 42, scale, flip, {
-        offsetX: enemy.attackDirX * attackLunge * 18,
-        offsetY: enemy.attackDirY * attackLunge * 10,
-        rotation: enemy.attackDirX * attackLunge * 0.04,
-        scaleX: 1 + attackLunge * 0.1,
-        scaleY: 1 - attackLunge * 0.05,
+        offsetX: enemy.attackDirX * attackLunge * 22,
+        offsetY: enemy.attackDirY * attackLunge * 12 + stunSlump * 6,
+        rotation: enemy.attackDirX * attackLunge * 0.06 + (stunSlump ? Math.sin(performance.now() / 220) * 0.05 : 0),
+        scaleX: 1 + slamPunch * 0.16 - windup * 0.04,
+        scaleY: 1 - slamPunch * 0.1 + windup * 0.08 - stunSlump * 0.05,
       });
     } else {
       drawSprite(enemy.row, chooseActorFrame(enemy), enemy.x, enemy.y + 38, 0.7, flip);
     }
     if (melee && getActorFacing(enemy).y >= -0.42) {
-      drawDirectionalAttack(enemy, 1.45, enemy.rankInfo.color);
+      drawDirectionalAttack(enemy, 1.85 + slamPunch * 0.35, enemy.rankInfo.color);
     }
+    if (stunSlump > 0) drawBossStunMarks(enemy, stunSlump);
     drawRankTag(enemy.x, enemy.y - 148, "大将军", enemy.rankInfo.color, 0.96);
+  }
+
+  function drawBossMeleeFx(enemy, windup, followThrough) {
+    const angle = Math.atan2(enemy.attackDirY, enemy.attackDirX);
+    ctx.save();
+    if (windup > 0) {
+      ctx.translate(enemy.x, enemy.y - 46);
+      ctx.rotate(angle);
+      ctx.globalAlpha = 0.25 + windup * 0.45;
+      ctx.shadowBlur = 22 + windup * 18;
+      ctx.shadowColor = enemy.rankInfo.color;
+      ctx.strokeStyle = withAlpha(enemy.rankInfo.color, 0.7);
+      ctx.lineWidth = 6 + windup * 6;
+      ctx.beginPath();
+      ctx.arc(-30 - windup * 14, 0, 60 + windup * 24, -1.2, 1.2);
+      ctx.stroke();
+      ctx.shadowBlur = 0;
+      ctx.globalAlpha = 0.55 + windup * 0.3;
+      ctx.strokeStyle = "rgba(255,255,255,0.78)";
+      ctx.lineWidth = 3;
+      ctx.setLineDash([10, 6]);
+      ctx.beginPath();
+      ctx.arc(-30 - windup * 14, 0, 70 + windup * 24, -1.05, 1.05);
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
+    ctx.restore();
+
+    if (followThrough > 0) {
+      const punch = Math.sin(followThrough * Math.PI);
+      const tipX = enemy.x + enemy.attackDirX * (96 + punch * 36);
+      const tipY = enemy.y - 22 + enemy.attackDirY * (54 + punch * 18);
+      ctx.save();
+      ctx.translate(tipX, tipY);
+      ctx.globalAlpha = 0.55 - followThrough * 0.4;
+      ctx.shadowBlur = 32;
+      ctx.shadowColor = enemy.rankInfo.color;
+      ctx.fillStyle = withAlpha(enemy.rankInfo.color, 0.32);
+      ctx.beginPath();
+      ctx.ellipse(0, 0, 58 + punch * 22, 24 + punch * 10, angle, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.shadowBlur = 0;
+      ctx.globalAlpha = 0.6 - followThrough * 0.5;
+      ctx.strokeStyle = "rgba(255,247,220,0.95)";
+      ctx.lineWidth = 4;
+      for (let i = 0; i < 4; i += 1) {
+        const off = (i - 1.5) * 0.32;
+        ctx.beginPath();
+        ctx.moveTo(0, 0);
+        ctx.lineTo(Math.cos(angle + off) * (40 + punch * 30), Math.sin(angle + off) * (40 + punch * 30));
+        ctx.stroke();
+      }
+      ctx.restore();
+    }
+  }
+
+  function drawBossStunMarks(enemy, intensity) {
+    drawStunMarks(enemy.x, enemy.y - 118, intensity, 22, 5);
+  }
+
+  function drawStunMarks(cx, cy, intensity, ringRadius, dotRadius) {
+    const t = performance.now() / 320;
+    ctx.save();
+    ctx.translate(cx, cy);
+    ctx.globalAlpha = 0.7 * intensity;
+    for (let i = 0; i < 3; i += 1) {
+      const a = t + i * (Math.PI * 2 / 3);
+      ctx.fillStyle = i % 2 === 0 ? COLORS.gold : COLORS.red;
+      ctx.beginPath();
+      ctx.arc(Math.cos(a) * ringRadius, Math.sin(a) * (ringRadius * 0.36), dotRadius, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.restore();
   }
 
   function drawBossAura(enemy) {
@@ -2835,7 +3498,8 @@
 
   function drawEnemyAttackTell(enemy) {
     const charging = enemy.chargeState && enemy.chargeState !== "idle";
-    if (enemy.attackTimer <= 0 && enemy.recoveryTimer <= 0 && !charging) return;
+    const bossCharging = enemy.boss && enemy.bossChargeState && enemy.bossChargeState !== "idle" && enemy.bossChargeState !== "stun";
+    if (enemy.attackTimer <= 0 && enemy.recoveryTimer <= 0 && (enemy.staggerTimer || 0) <= 0 && !charging && !bossCharging) return;
     const profile = getEnemyAttackProfile(enemy);
     const ranged = isRangedAttack(enemy, profile);
     ctx.save();
@@ -2863,6 +3527,33 @@
       ctx.beginPath();
       ctx.ellipse(targetX, targetY - 18, 30 + progress * 10, 18 + progress * 6, angle, 0, Math.PI * 2);
       ctx.fill();
+      ctx.stroke();
+    }
+    if (bossCharging) {
+      const dash = enemy.bossChargeState === "dash";
+      const progress = dash ? 1 : clamp(1 - enemy.bossChargeTimer / 0.7, 0, 1);
+      const angle = Math.atan2(enemy.bossChargeDirY || 0, enemy.bossChargeDirX || 1);
+      const reach = dash ? 220 : 280;
+      const tipX = enemy.x + Math.cos(angle) * reach;
+      const tipY = enemy.y - 28 + Math.sin(angle) * reach * 0.78;
+      ctx.globalAlpha = dash ? 0.42 : 0.22 + progress * 0.6;
+      ctx.shadowBlur = 28 + progress * 22;
+      ctx.shadowColor = COLORS.red;
+      ctx.strokeStyle = withAlpha(COLORS.red, dash ? 0.78 : 0.9);
+      ctx.lineWidth = dash ? 28 : 14 + progress * 22;
+      ctx.setLineDash(dash ? [] : [22, 14]);
+      ctx.beginPath();
+      ctx.moveTo(enemy.x, enemy.y - 28);
+      ctx.lineTo(tipX, tipY);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.shadowBlur = 0;
+      ctx.globalAlpha = 0.55 + progress * 0.3;
+      ctx.strokeStyle = "rgba(255,247,220,0.92)";
+      ctx.lineWidth = 4;
+      ctx.beginPath();
+      ctx.moveTo(enemy.x, enemy.y - 28);
+      ctx.lineTo(tipX, tipY);
       ctx.stroke();
     }
     if (enemy.attackTimer > 0 && !enemy.attackHitDone) {
@@ -2936,8 +3627,9 @@
         }
       }
     }
-    if (enemy.recoveryTimer > 0 && !enemy.boss) {
-      ctx.globalAlpha = clamp(enemy.recoveryTimer / profile.recovery, 0, 1) * 0.65;
+    if ((enemy.staggerTimer || 0) > 0) {
+      const ratio = clamp(enemy.staggerTimer / 0.9, 0, 1);
+      ctx.globalAlpha = 0.45 + ratio * 0.45;
       ctx.strokeStyle = COLORS.red;
       ctx.lineWidth = 3;
       ctx.setLineDash([6, 5]);
@@ -2981,10 +3673,31 @@
     const spriteSet = actor.role ? state.characterSprites[actor.role.spriteKey] : null;
     if (!spriteSet) return null;
     if (actor.hurt > 0) return pickCharacterFrame(spriteSet.emote, actor.hurt, 0.08);
+    if (actor.blockTimer > 0) {
+      return pickCharacterFrame(spriteSet.front, performance.now(), 200);
+    }
     if (actor.attackTimer > 0) {
       const duration = actor.attackDuration || 0.32;
       const progress = clamp(1 - actor.attackTimer / duration, 0, 0.999);
-      return spriteSet.attack[Math.floor(progress * spriteSet.attack.length)] || spriteSet.attack[0];
+      const frames = spriteSet.attack;
+      if (frames && frames.length > 0) {
+        const step = actor.attackComboStep || 0;
+        const total = frames.length;
+        // Slice the attack frame array per combo step so each strike shows different poses.
+        let startRatio = 0;
+        let endRatio = 1;
+        if (total >= 3) {
+          if (step === 0) { startRatio = 0; endRatio = 0.45; }
+          else if (step === 1) { startRatio = 0.30; endRatio = 0.80; }
+          else { startRatio = 0.55; endRatio = 1; }
+        }
+        const startIdx = Math.floor(startRatio * total);
+        const endIdx = Math.max(startIdx + 1, Math.floor(endRatio * total));
+        const sliceLen = Math.max(1, endIdx - startIdx);
+        const localIdx = Math.min(sliceLen - 1, Math.floor(progress * sliceLen));
+        return frames[startIdx + localIdx] || frames[0];
+      }
+      return null;
     }
     const facing = getActorFacing(actor);
     if (Math.abs(facing.y) > 0.65 && facing.y < 0) return pickCharacterFrame(spriteSet.back, performance.now(), 95);
@@ -3007,20 +3720,25 @@
     return getActorFacing(actor).x < -0.12;
   }
 
-  function drawDirectionalAttack(actor, scale, color) {
+  function drawDirectionalAttack(actor, scale, color, comboStep) {
     const facing = getActorFacing(actor);
     const isEnemy = !actor.role;
     const duration = actor.attackDuration || 0.32;
     const progress = clamp(1 - actor.attackTimer / duration, 0, 1);
     const eased = 1 - Math.pow(1 - progress, 2);
     const baseAngle = Math.atan2(facing.y, facing.x);
-    const sweep = -0.72 + eased * 1.44;
+    const step = Number.isInteger(comboStep) ? comboStep : 1;
+    const sweepMin = step === 0 ? -0.3 : (step === 2 ? -1.0 : -0.72);
+    const sweepMax = step === 0 ?  0.5 : (step === 2 ?  1.6 :  0.72);
+    const sweep = sweepMin + eased * (sweepMax - sweepMin);
+    const arcMult = step === 0 ? 0.7 : (step === 2 ? 1.25 : 1);
+    const isFinisher = step === 2;
     const weaponAngle = baseAngle + sweep;
     const originX = actor.x + facing.x * 10;
     const originY = actor.y - 26 + facing.y * 7;
     const weaponLength = 58 * scale;
     const handleLength = 14 * scale;
-    const arcRadius = 48 * scale;
+    const arcRadius = 48 * scale * arcMult;
 
     ctx.save();
     ctx.translate(originX, originY);
@@ -3122,6 +3840,27 @@
     ctx.beginPath();
     ctx.arc(0, 0, arcRadius + 5 * scale + progress * 16 * scale, -0.7 + sweep * 0.35, 0.7 + sweep * 0.35);
     ctx.stroke();
+    if (!isEnemy && isFinisher) {
+      ctx.globalAlpha = Math.max(0.16, 0.7 - progress * 0.35);
+      ctx.shadowBlur = 28 * scale;
+      ctx.shadowColor = COLORS.gold;
+      ctx.strokeStyle = withAlpha(COLORS.gold, 0.92);
+      ctx.lineWidth = 5 * scale;
+      ctx.beginPath();
+      ctx.arc(0, 0, arcRadius + 22 * scale + progress * 32 * scale, -1.0 + sweep * 0.35, 1.0 + sweep * 0.35);
+      ctx.stroke();
+      ctx.shadowBlur = 0;
+    }
+    if (!isEnemy && step === 0) {
+      // Quick jab: sharp white poke ahead instead of wide arc highlight.
+      ctx.globalAlpha = Math.max(0.2, 0.85 - progress * 0.5);
+      ctx.strokeStyle = "rgba(255,255,255,0.92)";
+      ctx.lineWidth = 4 * scale;
+      ctx.beginPath();
+      ctx.moveTo(arcRadius * 0.35, 0);
+      ctx.lineTo(arcRadius + 28 * scale + progress * 14 * scale, 0);
+      ctx.stroke();
+    }
     ctx.restore();
   }
 
@@ -3526,6 +4265,53 @@
           ctx.fill();
           ctx.stroke();
         }
+      }
+      if (effect.type === "hachiwareBlast") {
+        const baseRadius = 240;
+        ctx.save();
+        ctx.shadowColor = effect.color;
+        for (let i = 0; i < 3; i += 1) {
+          const ringStart = i * 0.18;
+          const ringP = clamp((progress - ringStart) / (1 - ringStart), 0, 1);
+          if (ringP <= 0) continue;
+          const r = ringP * (baseRadius - i * 26);
+          ctx.globalAlpha = (1 - ringP) * 0.7;
+          ctx.shadowBlur = 26;
+          ctx.lineWidth = 14 - i * 3;
+          ctx.strokeStyle = withAlpha(effect.color, 0.85);
+          ctx.beginPath();
+          ctx.ellipse(0, 0, r, r * 0.62, 0, 0, Math.PI * 2);
+          ctx.stroke();
+          ctx.shadowBlur = 0;
+          ctx.globalAlpha = (1 - ringP) * 0.85;
+          ctx.lineWidth = 4;
+          ctx.strokeStyle = "rgba(255,255,255,0.92)";
+          ctx.beginPath();
+          ctx.ellipse(0, 0, r + 6, r * 0.62 + 4, 0, 0, Math.PI * 2);
+          ctx.stroke();
+        }
+        ctx.globalAlpha = (1 - progress) * 0.55;
+        ctx.lineWidth = 4;
+        ctx.strokeStyle = withAlpha(effect.color, 0.78);
+        ctx.shadowBlur = 16;
+        for (let i = 0; i < 12; i += 1) {
+          const angle = (Math.PI * 2 * i) / 12 + progress * 0.6;
+          const innerR = 36 + progress * 60;
+          const outerR = 90 + progress * (baseRadius - 60);
+          ctx.beginPath();
+          ctx.moveTo(Math.cos(angle) * innerR, Math.sin(angle) * innerR * 0.62);
+          ctx.lineTo(Math.cos(angle) * outerR, Math.sin(angle) * outerR * 0.62);
+          ctx.stroke();
+        }
+        ctx.shadowBlur = 0;
+        ctx.globalAlpha = (1 - progress) * 0.95;
+        ctx.fillStyle = "rgba(255,255,255,0.88)";
+        for (let i = 0; i < 8; i += 1) {
+          const angle = (Math.PI * 2 * i) / 8 + progress * Math.PI;
+          const r = 110 + progress * 100;
+          star(Math.cos(angle) * r, Math.sin(angle) * r * 0.62, 6 + (1 - progress) * 6, 5);
+        }
+        ctx.restore();
       }
       if (effect.type === "hachiwareChord") {
         ctx.strokeStyle = withAlpha(effect.color, 0.86);
