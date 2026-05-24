@@ -29,6 +29,11 @@
       daimyo: EMBEDDED_ASSETS.enemyDaimyo || "asset/enemies/daimyo-sheet.png",
       shogun: EMBEDDED_ASSETS.enemyShogun || "asset/enemies/shogun-sheet.png",
     },
+    attackDefend: {
+      chiikawa: EMBEDDED_ASSETS.chiikawaAttackDefend || "asset/characters/chiikawa-attack-defend.png",
+      hachiware: EMBEDDED_ASSETS.hachiwareAttackDefend || "asset/characters/hachiware-attack-defend.png",
+      usagi: EMBEDDED_ASSETS.usagiAttackDefend || "asset/characters/usagi-attack-defend.png",
+    },
   };
 
   const COLORS = {
@@ -159,6 +164,7 @@
     images: {},
     sprites: {},
     characterSprites: {},
+    attackDefendSprites: {},
     enemySprites: {},
     sheet: {},
     buttons: [],
@@ -303,6 +309,7 @@
     });
     buildCharacterSprites();
     buildEnemySprites();
+    buildAttackDefendSprites();
   }
 
   function buildGridSprites(images, target) {
@@ -335,6 +342,91 @@
     buildGridSprites(state.images.enemies, state.enemySprites);
   }
 
+  function detectBackground(image) {
+    const c = document.createElement("canvas");
+    c.width = image.width;
+    c.height = image.height;
+    const cx = c.getContext("2d");
+    cx.drawImage(image, 0, 0);
+    try {
+      const corners = [
+        cx.getImageData(0, 0, 1, 1).data,
+        cx.getImageData(image.width - 1, 0, 1, 1).data,
+        cx.getImageData(0, image.height - 1, 1, 1).data,
+        cx.getImageData(image.width - 1, image.height - 1, 1, 1).data,
+      ];
+      let dark = 0;
+      for (const p of corners) {
+        if (p[0] < 30 && p[1] < 30 && p[2] < 30) dark++;
+      }
+      return dark >= 3 ? "black" : "white";
+    } catch {
+      return "white";
+    }
+  }
+
+  function makeCutoutDark(image, sx, sy, sw, sh, threshold = 30) {
+    const out = document.createElement("canvas");
+    out.width = sw;
+    out.height = sh;
+    const outCtx = out.getContext("2d");
+    outCtx.imageSmoothingEnabled = false;
+    outCtx.drawImage(image, sx, sy, sw, sh, 0, 0, sw, sh);
+    let pixels;
+    try {
+      pixels = outCtx.getImageData(0, 0, sw, sh);
+    } catch {
+      return { image, sx, sy, sw, sh, width: sw, height: sh, raw: true };
+    }
+    const data = pixels.data;
+    const visited = new Uint8Array(sw * sh);
+    const stack = [];
+    for (let x = 0; x < sw; x++) {
+      stack.push(x, 0);
+      stack.push(x, sh - 1);
+    }
+    for (let y = 1; y < sh - 1; y++) {
+      stack.push(0, y);
+      stack.push(sw - 1, y);
+    }
+    while (stack.length > 0) {
+      const cy = stack.pop();
+      const cx = stack.pop();
+      if (cx < 0 || cx >= sw || cy < 0 || cy >= sh) continue;
+      const idx = cy * sw + cx;
+      if (visited[idx]) continue;
+      const pi = idx * 4;
+      if (data[pi] >= threshold && data[pi + 1] >= threshold && data[pi + 2] >= threshold) continue;
+      visited[idx] = 1;
+      data[pi + 3] = 0;
+      stack.push(cx - 1, cy);
+      stack.push(cx + 1, cy);
+      stack.push(cx, cy - 1);
+      stack.push(cx, cy + 1);
+    }
+    outCtx.putImageData(pixels, 0, 0);
+    return { image: out, sx: 0, sy: 0, sw, sh, width: sw, height: sh, raw: false };
+  }
+
+  function buildAttackDefendSprites() {
+    const rowNames = ["block", "attack1", "attack2", "attack3"];
+    Object.entries(state.images.attackDefend || {}).forEach(([key, image]) => {
+      if (!image) return;
+      const cellW = image.width / 6;
+      const cellH = image.height / 4;
+      const bg = detectBackground(image);
+      const cutFn = bg === "black"
+        ? (img, sx, sy, sw, sh) => makeCutoutDark(img, sx, sy, sw, sh, 10)
+        : (img, sx, sy, sw, sh) => makeCutout(img, sx, sy, sw, sh, 246);
+      state.attackDefendSprites[key] = {};
+      rowNames.forEach((rowName, row) => {
+        state.attackDefendSprites[key][rowName] = Array.from({ length: 6 }, (_, col) =>
+          cutFn(image, col * cellW, row * cellH, cellW, cellH)
+        );
+      });
+    });
+  }
+
   Promise.all([
     loadImage(ASSET_PATHS.avatar),
     loadImage(ASSET_PATHS.background),
@@ -350,13 +442,17 @@
     loadImage(ASSET_PATHS.enemies.ninja).catch(() => null),
     loadImage(ASSET_PATHS.enemies.daimyo).catch(() => null),
     loadImage(ASSET_PATHS.enemies.shogun).catch(() => null),
+    loadImage(ASSET_PATHS.attackDefend.chiikawa).catch(() => null),
+    loadImage(ASSET_PATHS.attackDefend.hachiware).catch(() => null),
+    loadImage(ASSET_PATHS.attackDefend.usagi).catch(() => null),
   ])
-    .then(([avatar, background, opening, battleBackground, castleInterior, chiikawa, hachiware, usagi, farmer, ashigaru, samurai, ninja, daimyo, shogun]) => {
+    .then(([avatar, background, opening, battleBackground, castleInterior, chiikawa, hachiware, usagi, farmer, ashigaru, samurai, ninja, daimyo, shogun, adChiikawa, adHachiware, adUsagi]) => {
       state.images.avatar = avatar;
       state.images.background = background;
       state.images.opening = opening;
       state.images.characters = { chiikawa, hachiware, usagi };
       state.images.enemies = { farmer, ashigaru, samurai, ninja, daimyo, shogun };
+      state.images.attackDefend = { chiikawa: adChiikawa, hachiware: adHachiware, usagi: adUsagi };
       if (battleBackground) {
         state.images.battleBackground = battleBackground;
       }
@@ -3185,14 +3281,17 @@
         const stretch = player.dashTime > 0 ? 1 + 0.1 * Math.sin(dashProgress * Math.PI) : 1;
         const hurtPulse = player.hurt > 0 ? clamp(player.hurt / 0.38, 0, 1) : 0;
         const hurtKick = hurtPulse > 0 ? Math.sin(hurtPulse * Math.PI * 5) * 4 : 0;
-        const lungeMult = finisher ? 1.6 : (comboStep === 0 ? 0.6 : 1);
-        const blocking = player.blockTimer > 0;
+        const hasAdSprite = !!state.attackDefendSprites[player.role.spriteKey];
+        const attacking = player.attackTimer > 0 && hasAdSprite;
+        const blocking = player.blockTimer > 0 && hasAdSprite;
+        const lungeMult = attacking ? (finisher ? 0.9 : (comboStep === 0 ? 0.35 : 0.55)) : (finisher ? 1.6 : (comboStep === 0 ? 0.6 : 1));
+        const blockLean = blocking ? (flip ? 0.04 : -0.04) : (player.blockTimer > 0 ? (flip ? 0.06 : -0.06) : 0);
         drawCharacterFrame(characterFrame, player.x, player.y + 18, 0.38, flip, {
-          rotation: dashLean + player.attackDirX * attackLunge * 0.13 * lungeMult + hurtPulse * (flip ? -0.12 : 0.12) + (blocking ? (flip ? 0.06 : -0.06) : 0),
-          scaleX: stretch + attackLunge * 0.1 * lungeMult + hurtPulse * 0.12,
-          scaleY: 1 / stretch - attackLunge * 0.06 * lungeMult - hurtPulse * 0.08,
-          offsetX: hurtKick + player.attackDirX * attackLunge * 12 * lungeMult,
-          offsetY: -hurtPulse * 7 + player.attackDirY * attackLunge * 7 * lungeMult,
+          rotation: dashLean + player.attackDirX * attackLunge * (attacking ? 0.06 : 0.13) * lungeMult + hurtPulse * (flip ? -0.12 : 0.12) + blockLean,
+          scaleX: stretch + attackLunge * (attacking ? 0.04 : 0.1) * lungeMult + hurtPulse * 0.12,
+          scaleY: 1 / stretch - attackLunge * (attacking ? 0.02 : 0.06) * lungeMult - hurtPulse * 0.08,
+          offsetX: hurtKick + player.attackDirX * attackLunge * (attacking ? 8 : 12) * lungeMult + (blocking ? -player.attackDirX * 3 : 0),
+          offsetY: -hurtPulse * 7 + player.attackDirY * attackLunge * (attacking ? 4 : 7) * lungeMult,
         });
       }
       else drawSprite(player.row, frame, player.x, player.y + 19, 0.39, flip);
@@ -3672,30 +3771,32 @@
   function chooseCharacterFrame(actor) {
     const spriteSet = actor.role ? state.characterSprites[actor.role.spriteKey] : null;
     if (!spriteSet) return null;
+    const adSet = actor.role ? state.attackDefendSprites[actor.role.spriteKey] : null;
     if (actor.hurt > 0) return pickCharacterFrame(spriteSet.emote, actor.hurt, 0.08);
     if (actor.blockTimer > 0) {
+      if (adSet && adSet.block) {
+        const progress = clamp(1 - actor.blockTimer / BLOCK_DURATION, 0, 0.999);
+        const idx = Math.floor(progress * adSet.block.length);
+        return adSet.block[idx] || adSet.block[0];
+      }
       return pickCharacterFrame(spriteSet.front, performance.now(), 200);
     }
     if (actor.attackTimer > 0) {
       const duration = actor.attackDuration || 0.32;
       const progress = clamp(1 - actor.attackTimer / duration, 0, 0.999);
+      const step = actor.attackComboStep || 0;
+      if (adSet) {
+        const rowKey = step === 0 ? "attack1" : step === 1 ? "attack2" : "attack3";
+        const frames = adSet[rowKey];
+        if (frames && frames.length > 0) {
+          const idx = Math.min(frames.length - 1, Math.floor(progress * frames.length));
+          return frames[idx];
+        }
+      }
       const frames = spriteSet.attack;
       if (frames && frames.length > 0) {
-        const step = actor.attackComboStep || 0;
-        const total = frames.length;
-        // Slice the attack frame array per combo step so each strike shows different poses.
-        let startRatio = 0;
-        let endRatio = 1;
-        if (total >= 3) {
-          if (step === 0) { startRatio = 0; endRatio = 0.45; }
-          else if (step === 1) { startRatio = 0.30; endRatio = 0.80; }
-          else { startRatio = 0.55; endRatio = 1; }
-        }
-        const startIdx = Math.floor(startRatio * total);
-        const endIdx = Math.max(startIdx + 1, Math.floor(endRatio * total));
-        const sliceLen = Math.max(1, endIdx - startIdx);
-        const localIdx = Math.min(sliceLen - 1, Math.floor(progress * sliceLen));
-        return frames[startIdx + localIdx] || frames[0];
+        const idx = Math.min(frames.length - 1, Math.floor(progress * frames.length));
+        return frames[idx];
       }
       return null;
     }
