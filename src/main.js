@@ -30,9 +30,9 @@
       shogun: EMBEDDED_ASSETS.enemyShogun || "asset/enemies/shogun-sheet.png",
     },
     attackDefend: {
-      chiikawa: EMBEDDED_ASSETS.chiikawaAttackDefend || "asset/characters/chiikawa-attack-defend.png",
-      hachiware: EMBEDDED_ASSETS.hachiwareAttackDefend || "asset/characters/hachiware-attack-defend.png",
-      usagi: EMBEDDED_ASSETS.usagiAttackDefend || "asset/characters/usagi-attack-defend.png",
+      chiikawa: EMBEDDED_ASSETS.chiikawaAttackDefend || "asset/characters/chiikawa-attack-defend.png?v=20260526",
+      hachiware: EMBEDDED_ASSETS.hachiwareAttackDefend || "asset/characters/hachiware-attack-defend.png?v=20260526",
+      usagi: EMBEDDED_ASSETS.usagiAttackDefend || "asset/characters/usagi-attack-defend.png?v=20260526",
     },
   };
 
@@ -316,20 +316,31 @@
     const rowNames = ["front", "side", "back", "attack", "emote"];
     Object.entries(images || {}).forEach(([key, image]) => {
       if (!image) return;
-      const cellW = image.width / 6;
-      const cellH = image.height / 5;
+      const cellW = Math.floor(image.width / 6);
+      const cellH = Math.floor(image.height / 5);
+      const bg = detectBackground(image);
+      const cutFn = bg === "black"
+        ? (img, sx, sy, sw, sh) => makeCutoutDark(img, sx, sy, sw, sh, 10)
+        : bg === "purple"
+        ? (img, sx, sy, sw, sh) => makeCutoutPurple(img, sx, sy, sw, sh)
+        : null;
       target[key] = {};
       rowNames.forEach((rowName, row) => {
-        target[key][rowName] = Array.from({ length: 6 }, (_, col) => ({
-          image,
-          sx: col * cellW,
-          sy: row * cellH,
-          sw: cellW,
-          sh: cellH,
-          width: cellW,
-          height: cellH,
-          raw: false,
-        }));
+        target[key][rowName] = Array.from({ length: 6 }, (_, col) => {
+          const sx = col * cellW;
+          const sy = row * cellH;
+          if (cutFn) return cutFn(image, sx, sy, cellW, cellH);
+          return {
+            image,
+            sx,
+            sy,
+            sw: cellW,
+            sh: cellH,
+            width: cellW,
+            height: cellH,
+            raw: false,
+          };
+        });
       });
     });
   }
@@ -356,10 +367,14 @@
         cx.getImageData(image.width - 1, image.height - 1, 1, 1).data,
       ];
       let dark = 0;
+      let purple = 0;
       for (const p of corners) {
         if (p[0] < 30 && p[1] < 30 && p[2] < 30) dark++;
+        if (p[2] > 150 && p[0] > 80 && p[0] < 180 && p[1] < 150 && p[2] - p[1] > 60) purple++;
       }
-      return dark >= 3 ? "black" : "white";
+      if (dark >= 3) return "black";
+      if (purple >= 3) return "purple";
+      return "white";
     } catch {
       return "white";
     }
@@ -408,6 +423,97 @@
     return { image: out, sx: 0, sy: 0, sw, sh, width: sw, height: sh, raw: false };
   }
 
+  function makeCutoutPurple(image, sx, sy, sw, sh) {
+    const out = document.createElement("canvas");
+    out.width = sw;
+    out.height = sh;
+    const outCtx = out.getContext("2d");
+    outCtx.imageSmoothingEnabled = false;
+    outCtx.drawImage(image, sx, sy, sw, sh, 0, 0, sw, sh);
+    let pixels;
+    try {
+      pixels = outCtx.getImageData(0, 0, sw, sh);
+    } catch {
+      return { image, sx, sy, sw, sh, width: sw, height: sh, raw: true };
+    }
+    const data = pixels.data;
+    const visited = new Uint8Array(sw * sh);
+    const stack = [];
+    for (let x = 0; x < sw; x++) {
+      stack.push(x, 0);
+      stack.push(x, sh - 1);
+    }
+    for (let y = 1; y < sh - 1; y++) {
+      stack.push(0, y);
+      stack.push(sw - 1, y);
+    }
+    while (stack.length > 0) {
+      const cy = stack.pop();
+      const cx = stack.pop();
+      if (cx < 0 || cx >= sw || cy < 0 || cy >= sh) continue;
+      const idx = cy * sw + cx;
+      if (visited[idx]) continue;
+      const pi = idx * 4;
+      const r = data[pi], g = data[pi + 1], b = data[pi + 2];
+      if (!(b > 150 && r > 80 && r < 200 && g < 160 && b - g > 50)) continue;
+      visited[idx] = 1;
+      data[pi + 3] = 0;
+      stack.push(cx - 1, cy);
+      stack.push(cx + 1, cy);
+      stack.push(cx, cy - 1);
+      stack.push(cx, cy + 1);
+    }
+    outCtx.putImageData(pixels, 0, 0);
+    return { image: out, sx: 0, sy: 0, sw, sh, width: sw, height: sh, raw: false };
+  }
+
+  const FRAME_OFFSETS = {
+    "chiikawa.attack1.0": { dx: 1, dy: 4, dw: 6, dh: 0 },
+    "chiikawa.attack1.1": { dx: 1, dy: 4, dw: 6, dh: 0 },
+    "chiikawa.attack1.2": { dx: 23, dy: 4, dw: 6, dh: 0 },
+    "chiikawa.attack1.3": { dx: 23, dy: 4, dw: 6, dh: 0 },
+    "chiikawa.attack1.4": { dx: 23, dy: 4, dw: -15, dh: 0 },
+    "chiikawa.attack1.5": { dx: 23, dy: 4, dw: -40, dh: 0 },
+    "chiikawa.attack2.5": { dx: 23, dy: 4, dw: -40, dh: 0 },
+    "chiikawa.attack3.0": { dx: 0, dy: -74, dw: 0, dh: 0 },
+    "chiikawa.attack3.1": { dx: 10, dy: -6, dw: 0, dh: 0 },
+    "chiikawa.attack3.2": { dx: 19, dy: -51, dw: 0, dh: 0 },
+    "chiikawa.attack3.3": { dx: 46, dy: -65, dw: -7, dh: 0 },
+    "chiikawa.attack3.4": { dx: 37, dy: -80, dw: -2, dh: 0 },
+    "chiikawa.attack3.5": { dx: 26, dy: -80, dw: -40, dh: 0 },
+    "hachiware.block.5": { dx: 31, dy: -16, dw: -40, dh: 0 },
+    "hachiware.attack1.4": { dx: 14, dy: 15, dw: 0, dh: 0 },
+    "hachiware.attack1.5": { dx: 31, dy: -16, dw: -40, dh: 0 },
+    "hachiware.attack2.0": { dx: 0, dy: -5, dw: 0, dh: 0 },
+    "hachiware.attack2.1": { dx: 0, dy: -8, dw: -7, dh: -13 },
+    "hachiware.attack2.2": { dx: -45, dy: 0, dw: 0, dh: 0 },
+    "hachiware.attack2.3": { dx: -45, dy: -3, dw: 0, dh: 0 },
+    "hachiware.attack2.4": { dx: -37, dy: -7, dw: 22, dh: 0 },
+    "hachiware.attack3.0": { dx: -4, dy: -36, dw: 0, dh: 0 },
+    "hachiware.attack3.1": { dx: 0, dy: -32, dw: 0, dh: 0 },
+    "hachiware.attack3.3": { dx: 0, dy: -28, dw: 0, dh: 0 },
+    "hachiware.attack3.4": { dx: 0, dy: -30, dw: 0, dh: 0 },
+    "hachiware.attack3.5": { dx: 0, dy: -27, dw: 0, dh: 0 },
+    "usagi.block.5": { dx: 31, dy: -16, dw: -40, dh: 0 },
+    "usagi.attack1.0": { dx: 16, dy: -17, dw: 0, dh: 0 },
+    "usagi.attack1.1": { dx: 22, dy: -21, dw: 0, dh: 0 },
+    "usagi.attack1.2": { dx: 18, dy: -22, dw: 14, dh: 0 },
+    "usagi.attack1.3": { dx: 37, dy: 12, dw: 7, dh: 0 },
+    "usagi.attack1.4": { dx: 38, dy: -9, dw: -7, dh: 0 },
+    "usagi.attack1.5": { dx: 31, dy: -16, dw: -40, dh: 0 },
+    "usagi.attack2.0": { dx: 17, dy: -46, dw: 0, dh: 0 },
+    "usagi.attack2.1": { dx: 15, dy: -44, dw: 0, dh: 0 },
+    "usagi.attack2.2": { dx: 25, dy: -43, dw: 0, dh: 0 },
+    "usagi.attack2.3": { dx: 16, dy: -38, dw: 0, dh: 0 },
+    "usagi.attack2.4": { dx: 0, dy: -33, dw: 0, dh: 0 },
+    "usagi.attack2.5": { dx: 3, dy: -31, dw: -18, dh: 0 },
+    "usagi.attack3.0": { dx: 9, dy: -61, dw: 0, dh: 0 },
+    "usagi.attack3.1": { dx: 0, dy: -77, dw: 0, dh: 0 },
+    "usagi.attack3.2": { dx: 10, dy: -30, dw: 0, dh: 0 },
+    "usagi.attack3.4": { dx: 5, dy: -42, dw: 0, dh: 0 },
+    "usagi.attack3.5": { dx: -16, dy: -70, dw: 0, dh: 0 },
+  };
+
   function buildAttackDefendSprites() {
     const rowNames = ["block", "attack1", "attack2", "attack3"];
     Object.entries(state.images.attackDefend || {}).forEach(([key, image]) => {
@@ -417,12 +523,19 @@
       const bg = detectBackground(image);
       const cutFn = bg === "black"
         ? (img, sx, sy, sw, sh) => makeCutoutDark(img, sx, sy, sw, sh, 10)
+        : bg === "purple"
+        ? (img, sx, sy, sw, sh) => makeCutoutPurple(img, sx, sy, sw, sh)
         : (img, sx, sy, sw, sh) => makeCutout(img, sx, sy, sw, sh, 246);
       state.attackDefendSprites[key] = {};
       rowNames.forEach((rowName, row) => {
-        state.attackDefendSprites[key][rowName] = Array.from({ length: 6 }, (_, col) =>
-          cutFn(image, col * cellW, row * cellH, cellW, cellH)
-        );
+        state.attackDefendSprites[key][rowName] = Array.from({ length: 6 }, (_, col) => {
+          const off = FRAME_OFFSETS[`${key}.${rowName}.${col}`];
+          const sx = col * cellW + (off ? off.dx : 0);
+          const sy = row * cellH + (off ? off.dy : 0);
+          const sw = cellW + (off ? off.dw : 0);
+          const sh = cellH + (off ? off.dh : 0);
+          return cutFn(image, sx, sy, sw, sh);
+        });
       });
     });
   }
