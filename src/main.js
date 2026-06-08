@@ -15,6 +15,7 @@
     background: EMBEDDED_ASSETS.background || "asset/asset_backgroud.png",
     opening: EMBEDDED_ASSETS.opening || "asset/game_opening.png",
     battle: EMBEDDED_ASSETS.battle || "asset/edo_battle_background.png",
+    battleLevel1: EMBEDDED_ASSETS.battleLevel1 || "asset/edo_battle_background_level1.png",
     castleInterior: EMBEDDED_ASSETS.castleInterior || "asset/edo_castle_interior_background.png",
     characters: {
       chiikawa: EMBEDDED_ASSETS.chiikawa || "asset/characters/chiikawa-sheet.png",
@@ -28,6 +29,7 @@
       ninja: EMBEDDED_ASSETS.enemyNinja || "asset/enemies/ninja-sheet.png",
       daimyo: EMBEDDED_ASSETS.enemyDaimyo || "asset/enemies/daimyo-sheet.png",
       shogun: EMBEDDED_ASSETS.enemyShogun || "asset/enemies/shogun-sheet.png",
+      momonga: EMBEDDED_ASSETS.enemyMomonga || "asset/enemies/momonga-sheet.png",
     },
     attackDefend: {
       chiikawa: EMBEDDED_ASSETS.chiikawaAttackDefend || "asset/characters/chiikawa-attack-defend.png?v=20260526",
@@ -60,10 +62,12 @@
     { name: "终结斩", duration: 0.62, cooldownMult: 1.6, rangeMult: 1.2, damageMult: 1.55, cone: -0.2 },
   ];
   const COMBO_WINDOW = 0.55;
-  const BLOCK_PERFECT_WINDOW = 0.10;
+  const BLOCK_PERFECT_WINDOW = 0.15;
   const BLOCK_DURATION = 0.35;
   const BLOCK_COOLDOWN = 0.55;
   const BOSS_TRIGGER_WAVE = 3;
+  const STAGE1_BOSS_WAVE = 2;
+  const STAGE1_MAX_RANK = 3;
   const BOSS_BOUNDS = { minX: 92, maxX: WIDTH - 92, minY: 220, maxY: HEIGHT - 48 };
 
   const RANKS = [
@@ -106,6 +110,7 @@
       range: 66,
       cooldown: 0.34,
       color: "#e7c64f",
+      moveScale: 0.44,
       trait: "开朗可靠，步伐最稳。",
     },
     {
@@ -350,7 +355,33 @@
   }
 
   function buildEnemySprites() {
-    buildGridSprites(state.images.enemies, state.enemySprites);
+    const rowNames = ["front", "side", "back", "attack", "emote"];
+    Object.entries(state.images.enemies || {}).forEach(([key, image]) => {
+      if (!image) return;
+      const cellW = Math.floor(image.width / 6);
+      const cellH = Math.floor(image.height / 5);
+      const bg = detectBackground(image);
+      const cutFn = bg === "black"
+        ? (img, sx, sy, sw, sh) => makeCutoutDark(img, sx, sy, sw, sh, 10)
+        : bg === "purple"
+        ? (img, sx, sy, sw, sh) => makeCutoutPurple(img, sx, sy, sw, sh)
+        : null;
+      state.enemySprites[key] = {};
+      rowNames.forEach((rowName, row) => {
+        state.enemySprites[key][rowName] = Array.from({ length: 6 }, (_, col) => {
+          const off = ENEMY_FRAME_OFFSETS[`${key}.${rowName}.${col}`];
+          const sx = col * cellW + (off ? off.dx : 0);
+          const sy = row * cellH + (off ? off.dy : 0);
+          const sw = cellW + (off ? off.dw : 0);
+          const sh = cellH + (off ? off.dh : 0);
+          if (cutFn) return cutFn(image, sx, sy, sw, sh);
+          return {
+            image, sx, sy, sw, sh,
+            width: sw, height: sh, raw: false,
+          };
+        });
+      });
+    });
   }
 
   function detectBackground(image) {
@@ -467,6 +498,30 @@
     return { image: out, sx: 0, sy: 0, sw, sh, width: sw, height: sh, raw: false };
   }
 
+  const ENEMY_FRAME_OFFSETS = {
+    "ashigaru.attack.0": { dx: 32, dy: -9, dw: 0, dh: 0 },
+    "ashigaru.attack.1": { dx: 36, dy: -15, dw: 0, dh: 0 },
+    "ashigaru.attack.2": { dx: 24, dy: -17, dw: 0, dh: 0 },
+    "ashigaru.attack.3": { dx: 53, dy: -18, dw: 30, dh: -1 },
+    "ashigaru.attack.4": { dx: -27, dy: -27, dw: -40, dh: 4 },
+    "ashigaru.attack.5": { dx: -42, dy: -10, dw: 0, dh: 0 },
+    "momonga.attack.0": { dx: 0, dy: -20, dw: 0, dh: 0 },
+    "momonga.attack.1": { dx: -11, dy: -22, dw: -3, dh: 0 },
+    "momonga.attack.2": { dx: 26, dy: -31, dw: 0, dh: 0 },
+    "momonga.attack.3": { dx: 28, dy: -20, dw: 0, dh: 0 },
+    "momonga.attack.4": { dx: 34, dy: -18, dw: 0, dh: 0 },
+    "momonga.attack.5": { dx: 13, dy: -29, dw: -12, dh: -8 },
+    "farmer.attack.0": { dx: 24, dy: 0, dw: 0, dh: 0 },
+    "farmer.attack.1": { dx: 32, dy: 0, dw: 0, dh: 0 },
+    "farmer.attack.2": { dx: 38, dy: 0, dw: 0, dh: 0 },
+    "farmer.attack.3": { dx: 34, dy: 0, dw: 0, dh: 0 },
+    "farmer.attack.4": { dx: 27, dy: 0, dw: 0, dh: 0 },
+    "farmer.attack.5": { dx: 27, dy: 0, dw: 0, dh: 0 },
+    "shogun.attack.1": { dx: 17, dy: 0, dw: 0, dh: 0 },
+    "shogun.attack.2": { dx: 21, dy: 0, dw: 0, dh: 0 },
+    "shogun.attack.3": { dx: 11, dy: 0, dw: 0, dh: 0 },
+  };
+
   const FRAME_OFFSETS = {
     "chiikawa.attack1.0": { dx: 1, dy: 4, dw: 6, dh: 0 },
     "chiikawa.attack1.1": { dx: 1, dy: 4, dw: 6, dh: 0 },
@@ -545,6 +600,7 @@
     loadImage(ASSET_PATHS.background),
     loadImage(ASSET_PATHS.opening).catch(() => null),
     loadImage(ASSET_PATHS.battle).catch(() => null),
+    loadImage(ASSET_PATHS.battleLevel1).catch(() => null),
     loadImage(ASSET_PATHS.castleInterior).catch(() => null),
     loadImage(ASSET_PATHS.characters.chiikawa).catch(() => null),
     loadImage(ASSET_PATHS.characters.hachiware).catch(() => null),
@@ -555,19 +611,23 @@
     loadImage(ASSET_PATHS.enemies.ninja).catch(() => null),
     loadImage(ASSET_PATHS.enemies.daimyo).catch(() => null),
     loadImage(ASSET_PATHS.enemies.shogun).catch(() => null),
+    loadImage(ASSET_PATHS.enemies.momonga).catch(() => null),
     loadImage(ASSET_PATHS.attackDefend.chiikawa).catch(() => null),
     loadImage(ASSET_PATHS.attackDefend.hachiware).catch(() => null),
     loadImage(ASSET_PATHS.attackDefend.usagi).catch(() => null),
   ])
-    .then(([avatar, background, opening, battleBackground, castleInterior, chiikawa, hachiware, usagi, farmer, ashigaru, samurai, ninja, daimyo, shogun, adChiikawa, adHachiware, adUsagi]) => {
+    .then(([avatar, background, opening, battleBackground, battleLevel1, castleInterior, chiikawa, hachiware, usagi, farmer, ashigaru, samurai, ninja, daimyo, shogun, momonga, adChiikawa, adHachiware, adUsagi]) => {
       state.images.avatar = avatar;
       state.images.background = background;
       state.images.opening = opening;
       state.images.characters = { chiikawa, hachiware, usagi };
-      state.images.enemies = { farmer, ashigaru, samurai, ninja, daimyo, shogun };
+      state.images.enemies = { farmer, ashigaru, samurai, ninja, daimyo, shogun, momonga };
       state.images.attackDefend = { chiikawa: adChiikawa, hachiware: adHachiware, usagi: adUsagi };
       if (battleBackground) {
         state.images.battleBackground = battleBackground;
+      }
+      if (battleLevel1) {
+        state.images.battleLevel1 = battleLevel1;
       }
       if (castleInterior) {
         state.images.castleInterior = castleInterior;
@@ -700,6 +760,7 @@
     updatePlayer(dt);
     updateEnemies(dt);
     updateProjectiles(dt);
+    updateBombs(dt);
     updateDrops(dt);
     updateShrines(dt);
 
@@ -711,15 +772,29 @@
       finishGame("time");
       return;
     }
+    if (game.stageClearTimer > 0) {
+      game.stageClearTimer -= dt;
+      if (game.stageClearTimer <= 0) {
+        beginNextStage();
+      }
+      return;
+    }
     if (game.victoryTimer > 0) {
       game.victoryTimer -= dt;
       if (game.victoryTimer <= 0) {
-        finishGame("boss");
+        if (game.stage === 1) {
+          game.stageClearTimer = 2.5;
+          addFloater("第一关通过!", WIDTH / 2, 112, COLORS.gold, 2.2);
+        } else {
+          finishGame("boss");
+        }
       }
       return;
     }
     if (game.enemies.length === 0) {
-      if (!game.bossStarted && game.wave >= BOSS_TRIGGER_WAVE) {
+      const bossWave = game.stage === 1 ? STAGE1_BOSS_WAVE : BOSS_TRIGGER_WAVE;
+      const stageWave = game.stage === 1 ? game.wave : game.wave - STAGE1_BOSS_WAVE;
+      if (!game.bossStarted && stageWave >= bossWave) {
         if (!game.bossChoiceOffered) {
           beginUpgrade({ beforeBoss: true });
         } else {
@@ -803,6 +878,7 @@
       elapsed: 0,
       duration: 60,
       arena: "street",
+      stage: 1,
       wave: 0,
       boss: null,
       bossStarted: false,
@@ -811,8 +887,10 @@
       bossChoiceOffered: false,
       pendingBossChoice: false,
       victoryTimer: 0,
+      stageClearTimer: 0,
       enemies: [],
       projectiles: [],
+      bombs: [],
       drops: [],
       effects: [],
       floaters: [],
@@ -841,16 +919,20 @@
   function spawnWave() {
     const game = state.game;
     game.wave += 1;
-    const count = Math.min(8, 3 + game.wave);
+    const stageWave = game.stage === 1 ? game.wave : game.wave - STAGE1_BOSS_WAVE;
+    const count = game.stage === 1
+      ? Math.min(5, 2 + stageWave)
+      : Math.min(8, 3 + stageWave);
     let hasNinja = false;
     let hasDaimyo = false;
     for (let i = 0; i < count; i += 1) {
-      const rank = pickWaveEnemyRank(game.wave, i, count);
+      const rank = pickWaveEnemyRank(game.wave, i, count, game.stage);
       hasNinja = hasNinja || rank === 4;
       hasDaimyo = hasDaimyo || rank === 5;
       game.enemies.push(createEnemy(rank));
     }
-    addFloater(`第 ${game.wave} 波`, WIDTH / 2, 112, COLORS.red, 1.3);
+    const waveLabel = game.stage === 1 ? `第一关 · 第 ${stageWave} 波` : `第二关 · 第 ${stageWave} 波`;
+    addFloater(waveLabel, WIDTH / 2, 112, COLORS.red, 1.3);
     if (hasDaimyo) {
       addFloater("大名进场", WIDTH / 2, 150, RANKS[4].color, 1.15);
     } else if (hasNinja) {
@@ -858,11 +940,17 @@
     }
   }
 
-  function pickWaveEnemyRank(wave, index, count) {
-    if (wave === 2 && index === Math.floor(count / 2)) return 5;
-    if (wave === 3 && index === Math.floor(count / 2)) return 4;
-    const rank = rollEnemyRank(wave, index);
-    return wave <= BOSS_TRIGGER_WAVE ? Math.min(rank, 5) : rank;
+  function pickWaveEnemyRank(wave, index, count, stage) {
+    if (stage === 1) {
+      if (wave === 2 && index === Math.floor(count / 2)) return 3;
+      const rank = rollEnemyRank(wave, index);
+      return Math.min(rank, STAGE1_MAX_RANK);
+    }
+    const stageWave = wave - STAGE1_BOSS_WAVE;
+    if (stageWave === 2 && index === Math.floor(count / 2)) return 5;
+    if (stageWave === 3 && index === Math.floor(count / 2)) return 4;
+    const rank = rollEnemyRank(stageWave + 1, index);
+    return stageWave <= BOSS_TRIGGER_WAVE ? Math.min(rank, 5) : rank;
   }
 
   function rollEnemyRank(wave, index) {
@@ -876,25 +964,82 @@
     const game = state.game;
     const player = game.player;
     game.bossStarted = true;
-    game.arena = "castle";
-    game.duration += 80;
     game.projectiles = [];
+    game.bombs = [];
     game.drops = [];
     game.floaters = [];
-    player.x = WIDTH * 0.5;
-    player.y = HEIGHT - 88;
     player.vx = 0;
     player.vy = 0;
-    player.hp = Math.min(player.maxHp, player.hp + Math.ceil(player.maxHp * 0.35));
-    setPlayerAim(player, 0, -1);
-    const boss = createBossEnemy();
-    game.boss = boss;
-    game.enemies = [boss];
-    game.shrines = [createShrine()];
-    game.bossIntroTimer = 2.2;
-    addFloater("御殿决战", WIDTH / 2, 112, COLORS.gold, 1.35);
-    addFloater("将军登场", boss.x, boss.y - 146, COLORS.red, 1.45);
-    triggerScreenShake(20, 0.35);
+
+    if (game.stage === 1) {
+      game.duration += 50;
+      player.x = WIDTH * 0.5;
+      player.y = HEIGHT - 88;
+      player.hp = Math.min(player.maxHp, player.hp + Math.ceil(player.maxHp * 0.3));
+      setPlayerAim(player, 0, -1);
+      const boss = createMomongaBoss();
+      game.boss = boss;
+      game.enemies = [boss];
+      game.shrines = [];
+      game.bossIntroTimer = 2.0;
+      addFloater("飞鼠大将", WIDTH / 2, 112, COLORS.gold, 1.35);
+      addFloater("モモンガ参上!", boss.x, boss.y - 120, "#7b6bbd", 1.45);
+      triggerScreenShake(16, 0.3);
+    } else {
+      game.arena = "castle";
+      game.duration += 80;
+      player.x = WIDTH * 0.5;
+      player.y = HEIGHT - 88;
+      player.hp = Math.min(player.maxHp, player.hp + Math.ceil(player.maxHp * 0.35));
+      setPlayerAim(player, 0, -1);
+      const boss = createBossEnemy();
+      game.boss = boss;
+      game.enemies = [boss];
+      game.shrines = [createShrine()];
+      game.bossIntroTimer = 2.2;
+      addFloater("御殿决战", WIDTH / 2, 112, COLORS.gold, 1.35);
+      addFloater("将军登场", boss.x, boss.y - 146, COLORS.red, 1.45);
+      triggerScreenShake(20, 0.35);
+    }
+  }
+
+  function beginNextStage() {
+    const game = state.game;
+    const player = game.player;
+    game.stage += 1;
+    game.bossStarted = false;
+    game.bossDefeated = false;
+    game.bossChoiceOffered = false;
+    game.pendingBossChoice = false;
+    game.boss = null;
+    game.arena = "street";
+    game.projectiles = [];
+    game.bombs = [];
+    game.drops = [];
+    game.shrines = [];
+    game.effects = [];
+    game.floaters = [];
+    game.duration += 80;
+    player.x = WIDTH * 0.5;
+    player.y = HEIGHT * 0.58;
+    player.vx = 0;
+    player.vy = 0;
+    player.hp = Math.min(player.maxHp, player.hp + Math.ceil(player.maxHp * 0.5));
+    player.attackCooldown = 0;
+    player.attackTimer = 0;
+    player.blockTimer = 0;
+    player.blockCooldown = 0;
+    player.invuln = 1.0;
+    state.scene = "stageTransition";
+  }
+
+  function confirmNextStage() {
+    const game = state.game;
+    state.scene = "playing";
+    spawnWave();
+    addFloater(`第${game.stage}关 开始!`, WIDTH / 2, 112, COLORS.red, 1.4);
+    triggerScreenShake(12, 0.2);
+    lastTime = performance.now();
   }
 
   function createShrine() {
@@ -998,6 +1143,59 @@
       bossChargeCooldown: 5.5 + Math.random() * 2.5,
       bossChargeHitDone: false,
       bossStunTimer: 0,
+      lineAttackActive: false,
+      lineAttackTimer: 0,
+      lineAttackHit: false,
+      lineAttackDirX: 0,
+      lineAttackDirY: 0,
+      lineAttackOriginX: 0,
+      lineAttackOriginY: 0,
+    };
+  }
+
+  function createMomongaBoss() {
+    const phaseMaxHp = 350;
+    return {
+      id: cryptoRandomId(),
+      x: WIDTH * 0.5,
+      y: 280,
+      vx: 0,
+      vy: 0,
+      row: 0,
+      rank: 7,
+      rankInfo: { rank: 7, name: "飞鼠", jp: "鼯", spriteKey: "momonga", score: 600, hp: phaseMaxHp, speed: 88, damage: 14, color: "#7b6bbd" },
+      boss: true,
+      momongaBoss: true,
+      bossPhase: 1,
+      bossPhaseMax: 1,
+      phaseMaxHp,
+      radius: 44,
+      hp: phaseMaxHp,
+      maxHp: phaseMaxHp,
+      speed: 88,
+      damage: 14,
+      cooldown: 1.0,
+      attackTimer: 0,
+      attackHitDone: false,
+      attackKind: "ranged",
+      recoveryTimer: 0,
+      hurt: 0,
+      moving: false,
+      movePhase: Math.random() * Math.PI * 2,
+      strafeDir: Math.random() > 0.5 ? 1 : -1,
+      behaviorTimer: 0.8,
+      dirX: 0,
+      dirY: 1,
+      bossChargeState: "idle",
+      bossChargeTimer: 0,
+      bossChargeCooldown: 4.0 + Math.random() * 2,
+      bossChargeHitDone: false,
+      bossStunTimer: 0,
+      glideTimer: 0,
+      glideCooldown: 6 + Math.random() * 3,
+      glideState: "idle",
+      glideDirX: 0,
+      glideDirY: 0,
     };
   }
 
@@ -1074,10 +1272,11 @@
       player.dashRecharge = 0;
       return;
     }
+    const rechargeTime = player.role && player.role.id === "usagi" ? 10 : DASH_RECHARGE_TIME;
     player.dashRecharge += dt;
-    while (player.dashRecharge >= DASH_RECHARGE_TIME && player.dashCharges < DASH_MAX_CHARGES) {
+    while (player.dashRecharge >= rechargeTime && player.dashCharges < DASH_MAX_CHARGES) {
       player.dashCharges += 1;
-      player.dashRecharge -= DASH_RECHARGE_TIME;
+      player.dashRecharge -= rechargeTime;
     }
     if (player.dashCharges >= DASH_MAX_CHARGES) {
       player.dashCharges = DASH_MAX_CHARGES;
@@ -1136,16 +1335,27 @@
       if (enemy.boss) {
         enemy.bossChargeCooldown = Math.max(0, (enemy.bossChargeCooldown || 0) - dt);
         enemy.bossStunTimer = Math.max(0, (enemy.bossStunTimer || 0) - dt);
+        if (enemy.momongaBoss) {
+          enemy.glideCooldown = Math.max(0, (enemy.glideCooldown || 0) - dt);
+          if (updateMomongaGlide(enemy, player, dt, nx, ny, distance)) {
+            continue;
+          }
+          if (shouldStartMomongaGlide(enemy, distance)) {
+            startMomongaGlide(enemy, player, nx, ny);
+            continue;
+          }
+        }
         if (updateBossCharge(enemy, player, dt, nx, ny, distance)) {
           continue;
         }
-        if (shouldStartBossCharge(enemy, distance)) {
+        if (!enemy.momongaBoss && shouldStartBossCharge(enemy, distance)) {
           startBossCharge(enemy, player, nx, ny);
           continue;
         }
       }
 
       resolveEnemyAttackHit(enemy, player, attackProfile);
+      if (enemy.boss) updateLineAttack(enemy, player, dt);
 
       const behavior = getEnemyMovement(enemy, nx, ny, distance);
       enemy.moving = enemy.hurt <= 0 && enemy.attackTimer <= 0 && enemy.recoveryTimer <= 0 && behavior.intent > 0.02;
@@ -1161,7 +1371,7 @@
       enemy.vy *= 0.88;
 
       const nextAttackKind = enemy.boss ? chooseBossAttackKind(enemy, distance) : enemy.attackKind;
-      const candidateProfile = enemy.boss ? getBossAttackProfile(nextAttackKind) : attackProfile;
+      const candidateProfile = enemy.boss ? getBossAttackProfile(nextAttackKind, enemy) : attackProfile;
       const attackIsRanged = isRangedAttack(enemy, candidateProfile);
       const inAttackRange = attackIsRanged
         ? distance < candidateProfile.range && distance > (candidateProfile.minRange || 0)
@@ -1378,11 +1588,115 @@
     return false;
   }
 
+  function shouldStartMomongaGlide(enemy, distance) {
+    if (!enemy.momongaBoss) return false;
+    if (enemy.glideState && enemy.glideState !== "idle") return false;
+    if (enemy.attackTimer > 0 || enemy.recoveryTimer > 0 || enemy.hurt > 0) return false;
+    if ((enemy.glideCooldown || 0) > 0) return false;
+    if (state.game.bossIntroTimer > 0) return false;
+    if (enemy.bossChargeState && enemy.bossChargeState !== "idle") return false;
+    if (distance < 120 || distance > 580) return false;
+    return Math.random() < 0.5;
+  }
+
+  function startMomongaGlide(enemy, player, nx, ny) {
+    enemy.glideState = "rise";
+    enemy.glideTimer = 0.5;
+    enemy.glideDirX = nx;
+    enemy.glideDirY = ny;
+    enemy.glideTargetX = player.x;
+    enemy.glideTargetY = player.y;
+    enemy.bossChargeHitDone = false;
+    enemy.cooldown = Math.max(enemy.cooldown, 1.2);
+    enemy.vx *= 0.1;
+    enemy.vy *= 0.1;
+    enemy.moving = false;
+    addFloater("滑翔突击!", enemy.x, enemy.y - 140, "#7b6bbd", 1.0);
+    addEffect("specialAura", enemy.x, enemy.y - 30, "#7b6bbd");
+  }
+
+  function updateMomongaGlide(enemy, player, dt, nx, ny, distance) {
+    if (!enemy.momongaBoss || !enemy.glideState || enemy.glideState === "idle") return false;
+    enemy.glideTimer = Math.max(0, enemy.glideTimer - dt);
+
+    if (enemy.glideState === "rise") {
+      enemy.moving = false;
+      enemy.vx *= 0.1;
+      enemy.vy *= 0.1;
+      if (enemy.glideTimer <= 0) {
+        const dx = player.x - enemy.x;
+        const dy = player.y - enemy.y;
+        const length = Math.max(1, Math.hypot(dx, dy));
+        enemy.glideDirX = dx / length;
+        enemy.glideDirY = dy / length;
+        enemy.glideState = "swoop";
+        enemy.glideTimer = 0.55;
+        addEffect("dashLine", enemy.x, enemy.y - 28, "#7b6bbd", Math.atan2(enemy.glideDirY, enemy.glideDirX));
+        triggerScreenShake(8, 0.1);
+      }
+      return true;
+    }
+
+    if (enemy.glideState === "swoop") {
+      enemy.moving = true;
+      const speed = 560;
+      enemy.x += enemy.glideDirX * speed * dt;
+      enemy.y += enemy.glideDirY * speed * dt * 0.8;
+      keepActorInBounds(enemy, BOSS_BOUNDS);
+      if (!enemy.bossChargeHitDone && Math.hypot(player.x - enemy.x, player.y - enemy.y) < player.radius + enemy.radius + 14) {
+        enemy.bossChargeHitDone = true;
+        if (player.invuln > 0) {
+          addFloater("闪避!", player.x, player.y - 58, COLORS.blue, 0.55);
+          addEffect("guardFlash", player.x, player.y - 28, COLORS.blue);
+        } else {
+          damagePlayer(enemy.damage + 8, enemy);
+          addEffect("bossShockwave", player.x, player.y - 20, "#7b6bbd", Math.atan2(enemy.glideDirY, enemy.glideDirX));
+          triggerScreenShake(18, 0.22);
+        }
+      }
+      if (enemy.glideTimer <= 0) {
+        enemy.glideState = "land";
+        enemy.glideTimer = 1.8;
+        enemy.recoveryTimer = Math.max(enemy.recoveryTimer, 1.8);
+        enemy.cooldown = Math.max(enemy.cooldown, 1.8);
+        enemy.vx = enemy.glideDirX * 50;
+        enemy.vy = enemy.glideDirY * 30;
+        addEffect("burst", enemy.x, enemy.y - 20, "#7b6bbd");
+        triggerScreenShake(12, 0.15);
+      }
+      return true;
+    }
+
+    if (enemy.glideState === "land") {
+      enemy.moving = false;
+      enemy.vx *= 0.85;
+      enemy.vy *= 0.85;
+      enemy.attackTimer = 0;
+      enemy.recoveryTimer = Math.max(enemy.recoveryTimer, enemy.glideTimer);
+      if (enemy.glideTimer <= 0) {
+        enemy.glideState = "idle";
+        enemy.glideCooldown = 5 + Math.random() * 3;
+      }
+      return true;
+    }
+
+    enemy.glideState = "idle";
+    return false;
+  }
+
   function resolveEnemyAttackHit(enemy, player, profile) {
     if (enemy.attackTimer <= 0 || enemy.attackHitDone) return;
     const progress = 1 - enemy.attackTimer / (enemy.attackDuration || profile.duration);
     if (progress < profile.hitAt) return;
     enemy.attackHitDone = true;
+    if (profile.bombAttack) {
+      throwBombs(enemy, profile);
+      return;
+    }
+    if (profile.lineAttack) {
+      startLineAttack(enemy, profile);
+      return;
+    }
     if (isRangedAttack(enemy, profile)) {
       throwEnemyProjectile(enemy, profile);
       return;
@@ -1421,37 +1735,80 @@
 
   function getEnemyAttackProfile(enemyOrRank) {
     const enemy = typeof enemyOrRank === "object" ? enemyOrRank : null;
-    if (enemy && enemy.boss) return getBossAttackProfile(enemy.attackKind || "ranged");
+    if (enemy && enemy.boss) return getBossAttackProfile(enemy.attackKind || "ranged", enemy);
     const rank = enemy ? enemy.rank : enemyOrRank;
-    if (rank >= 6) return { range: 58, cooldown: 0.42, duration: 0.56, initialCooldown: 0.28, hitAt: 0.48, recovery: 0.78, cone: 0.16 };
-    if (rank === 5) return { range: 46, cooldown: 0.54, duration: 0.52, initialCooldown: 0.36, hitAt: 0.5, recovery: 0.66, cone: 0.12 };
-    if (rank === 4) return { range: 330, minRange: 64, cooldown: 1.08, duration: 0.62, initialCooldown: 0.58, hitAt: 0.54, recovery: 0.46, cone: -1, projectileSpeed: 330, projectileLife: 1.75 };
-    if (rank === 3) return { range: 34, cooldown: 0.68, duration: 0.48, initialCooldown: 0.44, hitAt: 0.5, recovery: 0.5, cone: 0.08 };
-    if (rank === 2) return { range: 24, cooldown: 0.82, duration: 0.5, initialCooldown: 0.58, hitAt: 0.52, recovery: 0.38, cone: 0.05 };
-    return { range: 16, cooldown: 0.95, duration: 0.52, initialCooldown: 0.7, hitAt: 0.54, recovery: 0.3, cone: 0.02 };
+    if (rank >= 6) return { range: 64, cooldown: 0.42, duration: 0.64, initialCooldown: 0.28, hitAt: 0.52, recovery: 0.78, cone: 0.16 };
+    if (rank === 5) return { range: 52, cooldown: 0.54, duration: 0.60, initialCooldown: 0.36, hitAt: 0.54, recovery: 0.66, cone: 0.12 };
+    if (rank === 4) return { range: 330, minRange: 64, cooldown: 1.08, duration: 0.70, initialCooldown: 0.58, hitAt: 0.58, recovery: 0.46, cone: -1, projectileSpeed: 330, projectileLife: 1.75 };
+    if (rank === 3) return { range: 40, cooldown: 0.68, duration: 0.56, initialCooldown: 0.44, hitAt: 0.54, recovery: 0.5, cone: 0.08 };
+    if (rank === 2) return { range: 30, cooldown: 0.72, duration: 0.58, initialCooldown: 0.48, hitAt: 0.56, recovery: 0.38, cone: 0.05 };
+    return { range: 22, cooldown: 0.78, duration: 0.60, initialCooldown: 0.55, hitAt: 0.58, recovery: 0.3, cone: 0.02 };
   }
 
-  function getBossAttackProfile(kind) {
+  function getBossAttackProfile(kind, enemy) {
+    if (enemy && enemy.momongaBoss) {
+      if (kind === "ranged") {
+        return {
+          range: 380,
+          minRange: 80,
+          cooldown: 1.2,
+          duration: 0.68,
+          initialCooldown: 0.85,
+          hitAt: 0.52,
+          recovery: 0.7,
+          cone: -1,
+          projectileKind: "bossAxe",
+          projectileSpeed: 340,
+          projectileLife: 1.9,
+          projectileRadius: 16,
+        };
+      }
+      if (kind === "bomb") {
+        return {
+          range: 500,
+          cooldown: 2.0,
+          duration: 0.6,
+          initialCooldown: 1.0,
+          hitAt: 0.5,
+          recovery: 1.0,
+          cone: -1,
+          bombAttack: true,
+          bombCount: 3,
+          bombFuseTime: 1.5,
+          bombBlastRadius: 52,
+          bombDamage: 18,
+        };
+      }
+      return { range: 72, cooldown: 0.95, duration: 0.58, initialCooldown: 0.7, hitAt: 0.5, recovery: 0.42, cone: -0.1, bossMelee: true };
+    }
     if (kind === "ranged") {
       return {
-        range: 440,
+        range: 520,
         minRange: 96,
-        cooldown: 1.34,
-        duration: 0.78,
-        initialCooldown: 1.15,
+        cooldown: 1.5,
+        duration: 0.95,
+        initialCooldown: 1.2,
         hitAt: 0.58,
-        recovery: 0.92,
+        recovery: 0.9,
         cone: -1,
-        projectileKind: "bossAxe",
-        projectileSpeed: 370,
-        projectileLife: 2.05,
-        projectileRadius: 21,
+        lineAttack: true,
+        lineAttackDuration: 0.55,
+        lineAttackRange: 540,
+        lineAttackWidth: 29,
+        lineAttackDamage: 22,
       };
     }
     return { range: 96, cooldown: 1.18, duration: 0.74, initialCooldown: 0.8, hitAt: 0.55, recovery: 0, cone: -0.08, bossMelee: true };
   }
 
   function chooseBossAttackKind(enemy, distance) {
+    if (enemy.momongaBoss) {
+      if (distance < 140) return "melee";
+      if (enemy.hp < enemy.maxHp * 0.5 && Math.random() < 0.3) return "melee";
+      const bombChance = enemy.hp < enemy.maxHp * 0.5 ? 0.4 : 0.25;
+      if (Math.random() < bombChance) return "bomb";
+      return "ranged";
+    }
     if (distance < 170) return "melee";
     if (enemy.hp < enemy.maxHp * 0.42 && Math.random() < 0.24) return "melee";
     return "ranged";
@@ -1462,10 +1819,12 @@
   }
 
   function isRangedAttack(enemy, profile) {
-    return isRangedEnemy(enemy) || Boolean(profile && profile.projectileKind);
+    return isRangedEnemy(enemy) || Boolean(profile && (profile.projectileKind || profile.lineAttack || profile.bombAttack));
   }
 
   function getEnemyAttackEffectType(enemy, profile) {
+    if (enemy.boss && profile.bombAttack) return "bossSmash";
+    if (enemy.boss && profile.lineAttack) return "bossSmash";
     if (enemy.boss && profile.projectileKind) return "bossAxeThrow";
     if (enemy.boss) return "bossSmash";
     return isRangedAttack(enemy, profile) ? "shurikenThrow" : "attackFlash";
@@ -1498,6 +1857,120 @@
       hit: false,
     });
     addEffect(enemy.boss ? "bossAxeThrow" : "shurikenThrow", startX, startY, enemy.rankInfo.color, Math.atan2(dirY, dirX));
+  }
+
+  function startLineAttack(enemy, profile) {
+    const dirX = enemy.attackDirX || enemy.dirX || 1;
+    const dirY = enemy.attackDirY || enemy.dirY || 0;
+    const len = Math.hypot(dirX, dirY) || 1;
+    enemy.lineAttackActive = true;
+    enemy.lineAttackTimer = profile.lineAttackDuration || 0.45;
+    enemy.lineAttackMaxTimer = enemy.lineAttackTimer;
+    enemy.lineAttackHit = false;
+    enemy.lineAttackDirX = dirX / len;
+    enemy.lineAttackDirY = dirY / len;
+    enemy.lineAttackOriginX = enemy.x + enemy.lineAttackDirX * 42;
+    enemy.lineAttackOriginY = enemy.y - 60 + enemy.lineAttackDirY * 20;
+    enemy.lineAttackRange = profile.lineAttackRange || 420;
+    enemy.lineAttackWidth = profile.lineAttackWidth || 32;
+    enemy.lineAttackDamage = profile.lineAttackDamage || enemy.damage;
+    addEffect("bossShockwave", enemy.lineAttackOriginX, enemy.lineAttackOriginY, enemy.rankInfo.color, Math.atan2(dirY, dirX));
+    triggerScreenShake(14, 0.2);
+  }
+
+  function updateLineAttack(enemy, player, dt) {
+    if (!enemy.lineAttackActive) return;
+    enemy.lineAttackTimer -= dt;
+    if (enemy.lineAttackTimer <= 0) {
+      enemy.lineAttackActive = false;
+      return;
+    }
+    if (enemy.lineAttackHit) return;
+    const ox = enemy.lineAttackOriginX;
+    const oy = enemy.lineAttackOriginY;
+    const dx = enemy.lineAttackDirX;
+    const dy = enemy.lineAttackDirY;
+    const px = player.x - ox;
+    const py = player.y - 20 - oy;
+    const dot = px * dx + py * dy;
+    if (dot < 0 || dot > enemy.lineAttackRange) return;
+    const cross = Math.abs(px * dy - py * dx);
+    if (cross > enemy.lineAttackWidth + player.radius) return;
+    enemy.lineAttackHit = true;
+    damagePlayer(enemy.lineAttackDamage, enemy);
+    addEffect("hit", player.x, player.y - 20, enemy.rankInfo.color);
+    addEffect("bossSmash", player.x, player.y - 12, COLORS.red, Math.atan2(dy, dx));
+    triggerScreenShake(18, 0.25);
+  }
+
+  function throwBombs(enemy, profile) {
+    const game = state.game;
+    const player = game.player;
+    const count = profile.bombCount || 3;
+    const fuseTime = profile.bombFuseTime || 1.5;
+    const blastRadius = profile.bombBlastRadius || 52;
+    const damage = profile.bombDamage || enemy.damage;
+    const originX = enemy.x;
+    const originY = enemy.y - 60;
+    for (let i = 0; i < count; i++) {
+      const spread = 60 + Math.random() * 80;
+      const angle = Math.random() * Math.PI * 2;
+      const targetX = clamp(player.x + Math.cos(angle) * spread, BOSS_BOUNDS.left + 30, BOSS_BOUNDS.right - 30);
+      const targetY = clamp(player.y + Math.sin(angle) * spread * 0.6, BOSS_BOUNDS.top + 20, BOSS_BOUNDS.bottom - 20);
+      game.bombs.push({
+        id: cryptoRandomId(),
+        originX, originY,
+        targetX, targetY,
+        x: originX, y: originY,
+        flyTime: 0,
+        flyDuration: 0.35 + i * 0.1,
+        landed: false,
+        fuseTimer: fuseTime + i * 0.2,
+        blastRadius,
+        damage,
+        color: enemy.rankInfo.color,
+        exploded: false,
+      });
+    }
+    addEffect("bossSmash", originX, originY, enemy.rankInfo.color, 0);
+  }
+
+  function updateBombs(dt) {
+    const game = state.game;
+    const player = game.player;
+    for (const bomb of game.bombs) {
+      if (bomb.exploded) continue;
+      if (!bomb.landed) {
+        bomb.flyTime += dt;
+        const t = clamp(bomb.flyTime / bomb.flyDuration, 0, 1);
+        bomb.x = bomb.originX + (bomb.targetX - bomb.originX) * t;
+        bomb.y = bomb.originY + (bomb.targetY - bomb.originY) * t - Math.sin(t * Math.PI) * 120;
+        if (t >= 1) {
+          bomb.landed = true;
+          bomb.x = bomb.targetX;
+          bomb.y = bomb.targetY;
+          addEffect("burst", bomb.x, bomb.y, bomb.color);
+          triggerScreenShake(6, 0.08);
+        }
+        continue;
+      }
+      bomb.fuseTimer -= dt;
+      if (bomb.fuseTimer <= 0) {
+        bomb.exploded = true;
+        const dx = player.x - bomb.x;
+        const dy = (player.y - 20) - bomb.y;
+        const dist = Math.hypot(dx, dy);
+        if (dist < bomb.blastRadius + player.radius) {
+          damagePlayer(bomb.damage, { x: bomb.x, y: bomb.y });
+          addEffect("hit", player.x, player.y - 20, COLORS.red);
+          triggerScreenShake(20, 0.25);
+        }
+        addEffect("bossShockwave", bomb.x, bomb.y, bomb.color, 0);
+        addEffect("burst", bomb.x, bomb.y, COLORS.red);
+        addEffect("burst", bomb.x, bomb.y - 8, bomb.color);
+      }
+    }
+    game.bombs = game.bombs.filter(b => !b.exploded);
   }
 
   function getEnemyMovement(enemy, nx, ny, distance) {
@@ -1663,8 +2136,9 @@
           x: projectile.x - projectile.dirX * 46,
           y: projectile.y - projectile.dirY * 34,
         });
-        addEffect(projectile.kind === "bossAxe" ? "bossShockwave" : "shurikenHit", player.x, bodyY, projectile.color, Math.atan2(projectile.dirY, projectile.dirX));
-        if (projectile.kind === "bossAxe") {
+        const isBossProjectile = projectile.kind === "bossAxe" || projectile.kind === "swordWave";
+        addEffect(isBossProjectile ? "bossShockwave" : "shurikenHit", player.x, bodyY, projectile.color, Math.atan2(projectile.dirY, projectile.dirX));
+        if (isBossProjectile) {
           triggerScreenShake(16, 0.2);
         }
       }
@@ -2041,7 +2515,9 @@
       game.bossDefeated = true;
       game.victoryTimer = 1.45;
       game.projectiles = [];
-      addFloater("大将讨取", enemy.x, enemy.y - 132, COLORS.gold, 1.25);
+      game.bombs = [];
+      const defeatLabel = enemy.momongaBoss ? "飞鼠讨伐!" : "大将讨取";
+      addFloater(defeatLabel, enemy.x, enemy.y - 132, COLORS.gold, 1.25);
       addEffect("bossDefeat", enemy.x, enemy.y - 74, COLORS.gold);
       triggerScreenShake(28, 0.5);
       return;
@@ -2064,12 +2540,62 @@
     boss.bossChargeCooldown = 4 + Math.random() * 2.5;
     boss.vx = 0;
     boss.vy = 0;
-    addFloater("第二段！", boss.x, boss.y - 158, COLORS.red, 1.4);
-    addEffect("bossShockwave", boss.x, boss.y - 36, COLORS.red);
-    addEffect("burst", boss.x, boss.y - 24, COLORS.gold);
-    addEffect("specialAura", boss.x, boss.y - 30, COLORS.red);
-    triggerScreenShake(24, 0.42);
-    spawnBossMinions();
+    if (boss.momongaBoss) {
+      boss.glideState = "idle";
+      boss.glideTimer = 0;
+      boss.glideCooldown = 3 + Math.random() * 2;
+      boss.speed += 12;
+      boss.damage += 3;
+      addFloater("第二段！", boss.x, boss.y - 130, "#7b6bbd", 1.4);
+      addEffect("bossShockwave", boss.x, boss.y - 36, "#7b6bbd");
+      addEffect("burst", boss.x, boss.y - 24, COLORS.gold);
+      addEffect("specialAura", boss.x, boss.y - 30, "#7b6bbd");
+      triggerScreenShake(20, 0.35);
+      spawnMomongaMinions();
+    } else {
+      boss.lineAttackActive = false;
+      addFloater("第二段！", boss.x, boss.y - 158, COLORS.red, 1.4);
+      addEffect("bossShockwave", boss.x, boss.y - 36, COLORS.red);
+      addEffect("burst", boss.x, boss.y - 24, COLORS.gold);
+      addEffect("specialAura", boss.x, boss.y - 30, COLORS.red);
+      triggerScreenShake(24, 0.42);
+      spawnShogunSwordWave(boss);
+      spawnBossMinions();
+    }
+  }
+
+  function spawnShogunSwordWave(boss) {
+    const game = state.game;
+    const ox = boss.x;
+    const oy = boss.y - 70;
+    const speed = 280;
+    for (let i = 0; i < 8; i++) {
+      const angle = (Math.PI * 2 / 8) * i;
+      const dx = Math.cos(angle);
+      const dy = Math.sin(angle);
+      game.projectiles.push({
+        id: cryptoRandomId(),
+        kind: "swordWave",
+        x: ox + dx * 40,
+        y: oy + dy * 30,
+        vx: dx * speed,
+        vy: dy * speed * 0.76,
+        dirX: dx,
+        dirY: dy,
+        radius: 18,
+        damage: boss.damage + 6,
+        color: COLORS.red,
+        age: 0,
+        life: 2.2,
+        maxLife: 2.2,
+        spin: angle,
+        spinSpeed: 12,
+        hit: false,
+      });
+    }
+    addEffect("bossShockwave", ox, oy, COLORS.red, 0);
+    addEffect("burst", ox, oy, COLORS.gold);
+    triggerScreenShake(18, 0.3);
   }
 
   const BOSS_MINION_RANK_POOL = [2, 3, 4];
@@ -2098,6 +2624,30 @@
       addEffect("burst", minion.x, minion.y - 20, minion.rankInfo.color);
     });
     addFloater("援军参上！", WIDTH / 2, 188, RANKS[2].color, 1.1);
+  }
+
+  function spawnMomongaMinions() {
+    const game = state.game;
+    const boss = game.boss;
+    const anchorX = boss ? boss.x : WIDTH / 2;
+    const anchorY = boss ? boss.y : 300;
+    const positions = [
+      { x: anchorX - 120, y: anchorY + 40 },
+      { x: anchorX + 120, y: anchorY + 40 },
+    ];
+    positions.forEach((pos, i) => {
+      const rank = i === 0 ? 1 : 2;
+      const minion = createEnemy(rank);
+      minion.x = clamp(pos.x, ENEMY_BOUNDS.minX + 24, ENEMY_BOUNDS.maxX - 24);
+      minion.y = clamp(pos.y, ENEMY_BOUNDS.minY, ENEMY_BOUNDS.maxY);
+      minion.vx = 0;
+      minion.vy = 0;
+      minion.bossMinion = true;
+      minion.guaranteedHealDrop = i === 0;
+      game.enemies.push(minion);
+      addEffect("burst", minion.x, minion.y - 20, minion.rankInfo.color);
+    });
+    addFloater("手下参上！", WIDTH / 2, 188, RANKS[0].color, 1.0);
   }
 
   function calculateMultiplier(playerRank, enemyRank) {
@@ -2222,12 +2772,15 @@
     game.pendingBossChoice = beforeBoss;
     if (beforeBoss) {
       game.bossChoiceOffered = true;
-      addFloater("决战前抽卡", WIDTH / 2, 88, COLORS.gold, 1.2);
+      const bossLabel = game.stage === 1 ? "BOSS战前抽卡" : "决战前抽卡";
+      addFloater(bossLabel, WIDTH / 2, 88, COLORS.gold, 1.2);
     } else {
-      game.duration += 40;
-      addFloater("+40秒", WIDTH / 2, 88, COLORS.blue, 1.2);
+      const timeBonus = game.stage === 1 ? 30 : 40;
+      game.duration += timeBonus;
+      addFloater(`+${timeBonus}秒`, WIDTH / 2, 88, COLORS.blue, 1.2);
     }
     game.projectiles = [];
+    game.bombs = [];
     state.scene = "upgrade";
     game.pendingUpgrades = pickUpgrades();
   }
@@ -2277,7 +2830,9 @@
 
   function makeResult(game) {
     const score = Math.round(game.score);
-    const bestRank = RANKS[game.bestDefeatRank - 1];
+    const bestRank = game.bestDefeatRank >= 7
+      ? { rank: 7, name: "飞鼠", color: "#7b6bbd" }
+      : RANKS[game.bestDefeatRank - 1] || RANKS[RANKS.length - 1];
     const title = deriveTitle(game, score);
     const entry = {
       name: `${game.role.name}玩家-${String(Math.floor(Math.random() * 900) + 100)}`,
@@ -2302,6 +2857,7 @@
   function deriveTitle(game, score) {
     if (game.reason === "lose" && score < 800) return "下克上失败";
     if (game.reason === "boss") return "御殿制霸";
+    if (game.bestDefeatRank >= 7) return "飞鼠猎人";
     if (game.bestDefeatRank >= 6 && game.role.rank <= 2) return "传说下克上";
     if (score >= 5600) return "天下级";
     if (game.bestDefeatRank >= 6) return "将军克星";
@@ -2366,6 +2922,7 @@
       drawPlaying();
       drawUpgrade();
     }
+    if (state.scene === "stageTransition") drawStageTransition();
     if (state.scene === "result") drawResult();
     if (state.scene === "ranking") drawRanking();
   }
@@ -2408,6 +2965,10 @@
         return;
       }
       drawCastleFallbackBackground();
+      return;
+    }
+    if (state.game && state.game.stage === 1 && state.images.battleLevel1) {
+      drawCoverImage(state.images.battleLevel1);
       return;
     }
     if (state.images.battleBackground) {
@@ -2822,16 +3383,19 @@
     const drawables = [
       ...game.drops.map((drop) => ({ type: "drop", y: drop.y, drop })),
       ...game.projectiles.map((projectile) => ({ type: "projectile", y: projectile.y + 28, projectile })),
+      ...game.bombs.map((bomb) => ({ type: "bomb", y: bomb.y + 16, bomb })),
       ...game.enemies.map((enemy) => ({ type: "enemy", y: enemy.y, actor: enemy })),
       { type: "player", y: game.player.y, actor: game.player },
     ].sort((a, b) => a.y - b.y);
     drawables.forEach((item) => {
       if (item.type === "drop") drawDrop(item.drop);
       else if (item.type === "projectile") drawProjectile(item.projectile);
+      else if (item.type === "bomb") drawBomb(item.bomb);
       else if (item.type === "player") drawPlayer(item.actor);
       else drawEnemy(item.actor);
     });
     drawEffects();
+    drawLineAttacks(game);
     drawFloaters();
     ctx.restore();
     drawHud();
@@ -2840,12 +3404,18 @@
 
   function drawBossIntroOverlay(game) {
     if (!game || game.bossIntroTimer <= 0) return;
-    const alpha = clamp(game.bossIntroTimer / 2.2, 0, 1);
+    const isMomonga = game.boss && game.boss.momongaBoss;
+    const alpha = clamp(game.bossIntroTimer / (isMomonga ? 2.0 : 2.2), 0, 1);
     ctx.save();
     ctx.fillStyle = `rgba(58,44,38,${0.18 * alpha})`;
     ctx.fillRect(0, 0, WIDTH, HEIGHT);
-    drawText("御殿决战", WIDTH / 2, 164, 46, "#fff8dd", "center", "bold");
-    drawText("引诱出招后反击", WIDTH / 2, 210, 24, COLORS.gold, "center", "bold");
+    if (isMomonga) {
+      drawText("飞鼠大将 降临!", WIDTH / 2, 164, 46, "#fff8dd", "center", "bold");
+      drawText("注意滑翔突击，趁着陆硬直反击!", WIDTH / 2, 210, 22, "#b8a0e0", "center", "bold");
+    } else {
+      drawText("御殿决战", WIDTH / 2, 164, 46, "#fff8dd", "center", "bold");
+      drawText("引诱出招后反击", WIDTH / 2, 210, 24, COLORS.gold, "center", "bold");
+    }
     ctx.restore();
   }
 
@@ -2995,8 +3565,10 @@
     ctx.strokeStyle = "rgba(230,189,78,0.9)";
     ctx.lineWidth = 3;
     ctx.stroke();
-    drawText("大将军", x, y - 1, 18, "#fff8e0", "left", "bold");
-    drawText(`御殿 BOSS · 第${phase}/${phaseMax}段`, x + w, y - 1, 14, COLORS.gold, "right", "bold");
+    const bossLabel = boss.momongaBoss ? "飞鼠大将" : "大将军";
+    const bossSubLabel = boss.momongaBoss ? "第一关 BOSS" : `御殿 BOSS · 第${phase}/${phaseMax}段`;
+    drawText(bossLabel, x, y - 1, 18, "#fff8e0", "left", "bold");
+    drawText(bossSubLabel, x + w, y - 1, 14, COLORS.gold, "right", "bold");
     const nextColor = phase < phaseMax ? getBossPhaseColor(phase + 1, phaseMax) : null;
     ctx.fillStyle = nextColor || "rgba(255,255,255,0.32)";
     roundRect(x, y + 10, w, h, h / 2);
@@ -3238,8 +3810,10 @@
     ctx.fillStyle = "rgba(58,50,54,0.5)";
     ctx.fillRect(0, 0, WIDTH, HEIGHT);
     drawPaperPanel(256, 78, 666, 108);
-    drawText(game.pendingBossChoice ? "御殿决战前夜" : "瓦版号外", WIDTH / 2, 120, 26, game.pendingBossChoice ? COLORS.gold : COLORS.red, "center", "bold");
-    drawText(game.pendingBossChoice ? "选择一张木札迎战将军" : "选择一张木札", WIDTH / 2, 158, 38, COLORS.ink, "center", "bold");
+    const bossChoiceTitle = game.stage === 1 ? "飞鼠大将战前夜" : "御殿决战前夜";
+    const bossChoiceDesc = game.stage === 1 ? "选择一张木札迎战飞鼠" : "选择一张木札迎战将军";
+    drawText(game.pendingBossChoice ? bossChoiceTitle : "瓦版号外", WIDTH / 2, 120, 26, game.pendingBossChoice ? COLORS.gold : COLORS.red, "center", "bold");
+    drawText(game.pendingBossChoice ? bossChoiceDesc : "选择一张木札", WIDTH / 2, 158, 38, COLORS.ink, "center", "bold");
     game.pendingUpgrades.forEach((upgrade, index) => {
       const x = 222 + index * 258;
       drawCard(x, 230, 218, 178, "#fff8ec", false);
@@ -3247,6 +3821,35 @@
       drawText(upgrade.name, x + 109, 300, 27, COLORS.ink, "center", "bold");
       drawText(upgrade.desc, x + 109, 338, 18, COLORS.muted, "center");
       drawButton(x + 47, 363, 124, 42, "取る", "木札", () => chooseUpgrade(index));
+    });
+    ctx.restore();
+  }
+
+  function drawStageTransition() {
+    const game = state.game;
+    ctx.save();
+    const grad = ctx.createLinearGradient(0, 0, 0, HEIGHT);
+    grad.addColorStop(0, "#2a2440");
+    grad.addColorStop(0.5, "#4a3870");
+    grad.addColorStop(1, "#2a2440");
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, WIDTH, HEIGHT);
+    const pulse = 0.5 + Math.sin(performance.now() / 400) * 0.5;
+    ctx.fillStyle = `rgba(123,107,189,${0.06 + pulse * 0.04})`;
+    for (let i = 0; i < 20; i += 1) {
+      const sx = (i * 173 + 47) % WIDTH;
+      const sy = (i * 97 + 23) % HEIGHT;
+      ctx.beginPath();
+      ctx.arc(sx, sy, 2 + pulse * 2, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    drawText("第一关 通过!", WIDTH / 2, 140, 52, "#fff8dd", "center", "bold");
+    drawText("飞鼠大将 讨伐成功", WIDTH / 2, 195, 28, "#b8a0e0", "center", "bold");
+    drawPaperPanel(326, 234, 526, 108);
+    drawText(`当前得分: ${Math.round(game.score)}`, WIDTH / 2, 276, 24, COLORS.ink, "center", "bold");
+    drawText(`击破数: ${game.kills}`, WIDTH / 2, 314, 20, COLORS.muted, "center");
+    drawButton(WIDTH / 2 - 126, 376, 252, 62, "进入第二关", "続く", () => {
+      confirmNextStage();
     });
     ctx.restore();
   }
@@ -3397,9 +4000,11 @@
         const hasAdSprite = !!state.attackDefendSprites[player.role.spriteKey];
         const attacking = player.attackTimer > 0 && hasAdSprite;
         const blocking = player.blockTimer > 0 && hasAdSprite;
+        const useAdFrame = attacking || blocking;
+        const baseScale = (!useAdFrame && player.role.moveScale) ? player.role.moveScale : 0.38;
         const lungeMult = attacking ? (finisher ? 0.9 : (comboStep === 0 ? 0.35 : 0.55)) : (finisher ? 1.6 : (comboStep === 0 ? 0.6 : 1));
         const blockLean = blocking ? (flip ? 0.04 : -0.04) : (player.blockTimer > 0 ? (flip ? 0.06 : -0.06) : 0);
-        drawCharacterFrame(characterFrame, player.x, player.y + 18, 0.38, flip, {
+        drawCharacterFrame(characterFrame, player.x, player.y + 18, baseScale, flip, {
           rotation: dashLean + player.attackDirX * attackLunge * (attacking ? 0.06 : 0.13) * lungeMult + hurtPulse * (flip ? -0.12 : 0.12) + blockLean,
           scaleX: stretch + attackLunge * (attacking ? 0.04 : 0.1) * lungeMult + hurtPulse * 0.12,
           scaleY: 1 / stretch - attackLunge * (attacking ? 0.02 : 0.06) * lungeMult - hurtPulse * 0.08,
@@ -3578,7 +4183,7 @@
     const duration = enemy.attackDuration || 0.74;
     const attackProgress = enemy.attackTimer > 0 ? clamp(1 - enemy.attackTimer / duration, 0, 1) : 0;
     const melee = enemy.attackTimer > 0 && enemy.attackKind === "melee";
-    const meleeProfile = getBossAttackProfile("melee");
+    const meleeProfile = getBossAttackProfile("melee", enemy);
     const meleeHitAt = meleeProfile.hitAt || 0.55;
     const windup = melee && attackProgress < meleeHitAt ? attackProgress / meleeHitAt : 0;
     const followThrough = melee && attackProgress >= meleeHitAt
@@ -3589,31 +4194,42 @@
     const attackLunge = melee
       ? pullback + slamPunch * 1.6
       : (attackProgress > 0 ? Math.sin(attackProgress * Math.PI) : 0);
-    const scale = 0.68 + (enemy.hp < enemy.maxHp * 0.45 ? 0.03 * Math.sin(performance.now() / 90) : 0);
-    const stunSlump = enemy.bossStunTimer > 0 ? clamp(enemy.bossStunTimer / 3, 0, 1) : 0;
-    drawShadow(enemy.x, enemy.y, 86 + slamPunch * 22, "rgba(34,25,25,0.28)");
+    const isMomonga = enemy.momongaBoss;
+    const baseScale = isMomonga ? 0.52 : 0.68;
+    const scale = baseScale + (enemy.hp < enemy.maxHp * 0.45 ? 0.03 * Math.sin(performance.now() / 90) : 0);
+    const gliding = isMomonga && enemy.glideState && enemy.glideState !== "idle";
+    const stunSlump = (enemy.bossStunTimer > 0 ? clamp(enemy.bossStunTimer / 3, 0, 1) : 0)
+      || (gliding && enemy.glideState === "land" ? clamp(enemy.glideTimer / 1.8, 0, 1) : 0);
+    const shadowRadius = isMomonga ? 62 : 86;
+    drawShadow(enemy.x, enemy.y, shadowRadius + slamPunch * 22, "rgba(34,25,25,0.28)");
     drawEnemyAttackTell(enemy);
-    drawBossAura(enemy);
+    if (isMomonga) drawMomongaAura(enemy);
+    else drawBossAura(enemy);
     if (melee) drawBossMeleeFx(enemy, windup, followThrough);
     if (melee && getActorFacing(enemy).y < -0.42) {
-      drawDirectionalAttack(enemy, 1.85 + slamPunch * 0.35, enemy.rankInfo.color);
+      drawDirectionalAttack(enemy, isMomonga ? 1.2 : 1.85 + slamPunch * 0.35, enemy.rankInfo.color);
     }
+    const glideRise = gliding && enemy.glideState === "rise" ? clamp(1 - enemy.glideTimer / 0.5, 0, 1) : 0;
+    const glideLift = gliding && enemy.glideState === "swoop" ? 1 : glideRise;
     if (enemyFrame) {
-      drawCharacterFrame(enemyFrame, enemy.x, enemy.y + 42, scale, flip, {
-        offsetX: enemy.attackDirX * attackLunge * 22,
-        offsetY: enemy.attackDirY * attackLunge * 12 + stunSlump * 6,
-        rotation: enemy.attackDirX * attackLunge * 0.06 + (stunSlump ? Math.sin(performance.now() / 220) * 0.05 : 0),
-        scaleX: 1 + slamPunch * 0.16 - windup * 0.04,
-        scaleY: 1 - slamPunch * 0.1 + windup * 0.08 - stunSlump * 0.05,
+      const spriteY = isMomonga ? enemy.y + 30 : enemy.y + 42;
+      drawCharacterFrame(enemyFrame, enemy.x, spriteY - glideLift * 20, scale, flip, {
+        offsetX: enemy.attackDirX * attackLunge * (isMomonga ? 14 : 22),
+        offsetY: enemy.attackDirY * attackLunge * (isMomonga ? 8 : 12) + stunSlump * 6 - glideLift * 8,
+        rotation: enemy.attackDirX * attackLunge * 0.06 + (stunSlump ? Math.sin(performance.now() / 220) * 0.05 : 0) + (gliding && enemy.glideState === "swoop" ? enemy.glideDirX * 0.2 : 0),
+        scaleX: 1 + slamPunch * 0.16 - windup * 0.04 + glideLift * 0.1,
+        scaleY: 1 - slamPunch * 0.1 + windup * 0.08 - stunSlump * 0.05 - glideLift * 0.06,
       });
     } else {
       drawSprite(enemy.row, chooseActorFrame(enemy), enemy.x, enemy.y + 38, 0.7, flip);
     }
     if (melee && getActorFacing(enemy).y >= -0.42) {
-      drawDirectionalAttack(enemy, 1.85 + slamPunch * 0.35, enemy.rankInfo.color);
+      drawDirectionalAttack(enemy, isMomonga ? 1.2 : 1.85 + slamPunch * 0.35, enemy.rankInfo.color);
     }
     if (stunSlump > 0) drawBossStunMarks(enemy, stunSlump);
-    drawRankTag(enemy.x, enemy.y - 148, "大将军", enemy.rankInfo.color, 0.96);
+    const tagY = isMomonga ? enemy.y - 110 : enemy.y - 148;
+    const tagName = isMomonga ? "飞鼠大将" : "大将军";
+    drawRankTag(enemy.x, tagY, tagName, enemy.rankInfo.color, 0.96);
   }
 
   function drawBossMeleeFx(enemy, windup, followThrough) {
@@ -3708,6 +4324,27 @@
     ctx.restore();
   }
 
+  function drawMomongaAura(enemy) {
+    const danger = enemy.hp < enemy.maxHp * 0.45;
+    const pulse = 0.5 + Math.sin(performance.now() / 200) * 0.5;
+    const gliding = enemy.glideState && enemy.glideState !== "idle";
+    ctx.save();
+    ctx.globalAlpha = danger ? 0.3 + pulse * 0.14 : 0.15 + pulse * 0.06;
+    if (gliding) ctx.globalAlpha += 0.2;
+    ctx.shadowBlur = danger ? 24 : 14;
+    ctx.shadowColor = "#7b6bbd";
+    ctx.strokeStyle = danger ? "#c44a44" : "#7b6bbd";
+    ctx.lineWidth = danger ? 4 : 2.5;
+    ctx.beginPath();
+    ctx.ellipse(enemy.x, enemy.y - 32, 56 + pulse * 10, 78 + pulse * 6, 0, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.globalAlpha *= 0.5;
+    ctx.beginPath();
+    ctx.ellipse(enemy.x, enemy.y + 6, 78 + pulse * 14, 26 + pulse * 5, 0, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.restore();
+  }
+
   function drawEnemyAttackTell(enemy) {
     const charging = enemy.chargeState && enemy.chargeState !== "idle";
     const bossCharging = enemy.boss && enemy.bossChargeState && enemy.bossChargeState !== "idle" && enemy.bossChargeState !== "stun";
@@ -3773,33 +4410,58 @@
       const angle = Math.atan2(enemy.attackDirY, enemy.attackDirX);
       const reach = enemy.radius + profile.range;
       const pulse = 0.35 + progress * 0.45;
-      if (ranged) {
+      if (ranged && profile.bombAttack) {
+        ctx.globalAlpha = 0.2 + progress * 0.4;
+        ctx.shadowBlur = 16;
+        ctx.shadowColor = enemy.rankInfo.color;
+        ctx.fillStyle = withAlpha(enemy.rankInfo.color, 0.18 + progress * 0.2);
+        ctx.strokeStyle = withAlpha(enemy.rankInfo.color, 0.6);
+        ctx.lineWidth = 3;
+        const targetX = state.game.player.x;
+        const targetY = state.game.player.y;
+        for (let i = 0; i < 3; i++) {
+          const bAngle = (Math.PI * 2 / 3) * i + progress * 1.5;
+          const bx = targetX + Math.cos(bAngle) * (40 + i * 30);
+          const by = targetY + Math.sin(bAngle) * (25 + i * 18);
+          ctx.beginPath();
+          ctx.arc(bx, by, 28 + progress * 14, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.setLineDash([8, 6]);
+          ctx.stroke();
+          ctx.setLineDash([]);
+        }
+      } else if (ranged) {
+        const isLine = profile.lineAttack;
         const laneLength = Math.min(profile.range, enemy.boss ? 420 : 310);
         const originY = enemy.y - (enemy.boss ? 84 : 28);
         const originX = enemy.x + enemy.attackDirX * (enemy.boss ? 46 : 20);
+        const endX = enemy.x + enemy.attackDirX * laneLength;
+        const endY = originY + enemy.attackDirY * laneLength * 0.76;
         ctx.globalAlpha = 0.18 + progress * 0.46;
         ctx.shadowBlur = enemy.boss ? 28 : 18;
         ctx.shadowColor = enemy.rankInfo.color;
         ctx.strokeStyle = withAlpha(enemy.rankInfo.color, 0.72);
-        ctx.lineWidth = enemy.boss ? 30 : 18;
+        ctx.lineWidth = isLine ? 52 + progress * 16 : (enemy.boss ? 30 : 18);
         ctx.beginPath();
         ctx.moveTo(originX, originY + enemy.attackDirY * 12);
-        ctx.lineTo(enemy.x + enemy.attackDirX * laneLength, originY + enemy.attackDirY * laneLength * 0.76);
+        ctx.lineTo(endX, endY);
         ctx.stroke();
         ctx.shadowBlur = 0;
         ctx.globalAlpha = 0.54 + progress * 0.32;
         ctx.strokeStyle = "rgba(255,255,255,0.88)";
-        ctx.lineWidth = enemy.boss ? 5 : 3;
+        ctx.lineWidth = isLine ? 6 : (enemy.boss ? 5 : 3);
         ctx.setLineDash([12, 10]);
         ctx.beginPath();
         ctx.moveTo(originX, originY + enemy.attackDirY * 12);
-        ctx.lineTo(enemy.x + enemy.attackDirX * laneLength, originY + enemy.attackDirY * laneLength * 0.76);
+        ctx.lineTo(endX, endY);
         ctx.stroke();
         ctx.setLineDash([]);
-        ctx.translate(enemy.x + enemy.attackDirX * Math.min(laneLength, enemy.boss ? 170 : 116), originY + enemy.attackDirY * Math.min(laneLength, enemy.boss ? 170 : 116) * 0.76);
-        ctx.rotate(angle + progress * Math.PI * 3);
-        if (enemy.boss) drawBossAxeShape(18 + progress * 7, enemy.rankInfo.color);
-        else drawShurikenShape(0, 0, 12 + progress * 5, enemy.rankInfo.color);
+        if (!isLine) {
+          ctx.translate(enemy.x + enemy.attackDirX * Math.min(laneLength, enemy.boss ? 170 : 116), originY + enemy.attackDirY * Math.min(laneLength, enemy.boss ? 170 : 116) * 0.76);
+          ctx.rotate(angle + progress * Math.PI * 3);
+          if (enemy.boss) drawBossAxeShape(18 + progress * 7, enemy.rankInfo.color);
+          else drawShurikenShape(0, 0, 12 + progress * 5, enemy.rankInfo.color);
+        }
       } else {
         const tellY = enemy.y - (enemy.boss ? 58 : 20);
         ctx.globalAlpha = pulse;
@@ -3867,6 +4529,11 @@
   function chooseEnemySpriteFrame(enemy) {
     const spriteSet = state.enemySprites[enemy.rankInfo.spriteKey];
     if (!spriteSet) return null;
+    if (enemy.momongaBoss && enemy.glideState && enemy.glideState !== "idle") {
+      if (enemy.glideState === "land") return pickCharacterFrame(spriteSet.emote, performance.now(), 140);
+      return pickCharacterFrame(spriteSet.attack, performance.now(), enemy.glideState === "swoop" ? 50 : 80);
+    }
+    if (enemy.boss && enemy.hurt > 0) return pickCharacterFrame(spriteSet.emote, enemy.hurt, 0.06);
     if (!enemy.boss && enemy.hurt > 0) return pickCharacterFrame(spriteSet.emote, enemy.hurt, 0.08);
     if (!enemy.boss && enemy.recoveryTimer > 0) return pickCharacterFrame(spriteSet.emote, performance.now(), 120);
     if (enemy.chargeState && enemy.chargeState !== "idle") return pickCharacterFrame(spriteSet.attack, performance.now(), enemy.chargeState === "dash" ? 55 : 95);
@@ -4174,9 +4841,152 @@
     ctx.restore();
   }
 
+  function drawBomb(bomb) {
+    ctx.save();
+    if (!bomb.landed) {
+      ctx.translate(bomb.x, bomb.y);
+      ctx.shadowBlur = 10;
+      ctx.shadowColor = bomb.color;
+      ctx.fillStyle = "#3a3032";
+      ctx.strokeStyle = COLORS.ink;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(0, 0, 10, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+      ctx.fillStyle = bomb.color;
+      ctx.beginPath();
+      ctx.arc(0, -8, 3, 0, Math.PI * 2);
+      ctx.fill();
+      const sparkAngle = performance.now() / 60;
+      ctx.strokeStyle = "#ffcc44";
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(Math.cos(sparkAngle) * 2, -10);
+      ctx.lineTo(Math.cos(sparkAngle + 1) * 6, -16);
+      ctx.stroke();
+    } else {
+      const urgency = clamp(1 - bomb.fuseTimer / 1.5, 0, 1);
+      const blinkRate = 80 + (1 - urgency) * 200;
+      const blink = Math.sin(performance.now() / blinkRate) > 0;
+      ctx.globalAlpha = 0.15 + urgency * 0.25;
+      ctx.fillStyle = withAlpha(COLORS.red, 0.3 + urgency * 0.3);
+      ctx.strokeStyle = withAlpha(COLORS.red, 0.5 + urgency * 0.4);
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(bomb.x, bomb.y, bomb.blastRadius * (0.8 + urgency * 0.2), 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+      ctx.globalAlpha = 1;
+      ctx.translate(bomb.x, bomb.y);
+      ctx.shadowBlur = blink ? 14 : 6;
+      ctx.shadowColor = blink ? COLORS.red : bomb.color;
+      ctx.fillStyle = blink ? "#5a2020" : "#3a3032";
+      ctx.strokeStyle = COLORS.ink;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(0, 0, 10, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+      if (blink) {
+        ctx.fillStyle = COLORS.red;
+        ctx.beginPath();
+        ctx.arc(0, -8, 4, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      const sparkLen = 4 + urgency * 8;
+      ctx.strokeStyle = "#ffcc44";
+      ctx.lineWidth = 2;
+      const sparkT = performance.now() / (40 + (1 - urgency) * 60);
+      ctx.beginPath();
+      ctx.moveTo(0, -10);
+      ctx.lineTo(Math.cos(sparkT) * sparkLen, -10 - sparkLen);
+      ctx.stroke();
+      ctx.strokeStyle = "#ff8844";
+      ctx.beginPath();
+      ctx.moveTo(0, -10);
+      ctx.lineTo(Math.cos(sparkT + 2) * sparkLen * 0.7, -10 - sparkLen * 0.8);
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+
+  function drawLineAttacks(game) {
+    for (const enemy of game.enemies) {
+      if (!enemy.lineAttackActive) continue;
+      const progress = 1 - enemy.lineAttackTimer / enemy.lineAttackMaxTimer;
+      const fade = enemy.lineAttackTimer < 0.12 ? enemy.lineAttackTimer / 0.12 : 1;
+      const ox = enemy.lineAttackOriginX;
+      const oy = enemy.lineAttackOriginY;
+      const dx = enemy.lineAttackDirX;
+      const dy = enemy.lineAttackDirY;
+      const range = enemy.lineAttackRange;
+      const endX = ox + dx * range;
+      const endY = oy + dy * range;
+      const angle = Math.atan2(dy, dx);
+      const width = enemy.lineAttackWidth * 2;
+      ctx.save();
+      const beamColor = enemy.rankInfo.color;
+      ctx.globalAlpha = 0.35 * fade;
+      ctx.shadowBlur = 32;
+      ctx.shadowColor = beamColor;
+      ctx.strokeStyle = withAlpha(beamColor, 0.6);
+      ctx.lineWidth = width + 20;
+      ctx.lineCap = "round";
+      ctx.beginPath();
+      ctx.moveTo(ox, oy);
+      ctx.lineTo(endX, endY);
+      ctx.stroke();
+      ctx.globalAlpha = 0.7 * fade;
+      ctx.shadowBlur = 18;
+      ctx.strokeStyle = withAlpha(beamColor, 0.85);
+      ctx.lineWidth = width;
+      ctx.beginPath();
+      ctx.moveTo(ox, oy);
+      ctx.lineTo(endX, endY);
+      ctx.stroke();
+      ctx.globalAlpha = 0.9 * fade;
+      ctx.shadowBlur = 8;
+      ctx.shadowColor = "#fff";
+      ctx.strokeStyle = "rgba(255,240,255,0.95)";
+      ctx.lineWidth = 6;
+      ctx.beginPath();
+      ctx.moveTo(ox, oy);
+      ctx.lineTo(endX, endY);
+      ctx.stroke();
+      const scytheCount = 3;
+      for (let i = 0; i < scytheCount; i++) {
+        const t = (i + 1) / (scytheCount + 1);
+        const sx = ox + dx * range * t;
+        const sy = oy + dy * range * t;
+        const spin = performance.now() / 200 + i * 2.1;
+        ctx.globalAlpha = 0.8 * fade;
+        ctx.shadowBlur = 12;
+        ctx.shadowColor = beamColor;
+        ctx.strokeStyle = "#ddd";
+        ctx.fillStyle = withAlpha(beamColor, 0.5);
+        ctx.lineWidth = 2.5;
+        ctx.beginPath();
+        ctx.arc(sx, sy, 16, angle + spin, angle + spin + Math.PI * 1.3);
+        ctx.stroke();
+        ctx.beginPath();
+        const cresAngle = angle + spin + Math.PI * 0.65;
+        ctx.moveTo(sx + Math.cos(cresAngle - 0.5) * 20, sy + Math.sin(cresAngle - 0.5) * 20);
+        ctx.quadraticCurveTo(sx + Math.cos(cresAngle) * 32, sy + Math.sin(cresAngle) * 32, sx + Math.cos(cresAngle + 0.5) * 20, sy + Math.sin(cresAngle + 0.5) * 20);
+        ctx.stroke();
+      }
+      ctx.restore();
+    }
+  }
+
   function drawProjectile(projectile) {
     ctx.save();
     const alpha = clamp(projectile.life / (projectile.maxLife || 1.75), 0, 1);
+    if (projectile.kind === "swordWave") {
+      drawSwordWaveProjectile(projectile, alpha);
+      ctx.restore();
+      return;
+    }
     const bossAxe = projectile.kind === "bossAxe";
     ctx.globalAlpha = Math.min(1, 0.4 + alpha);
     ctx.strokeStyle = "rgba(255,255,255,0.72)";
@@ -4197,8 +5007,43 @@
     ctx.shadowBlur = bossAxe ? 20 : 12;
     ctx.shadowColor = projectile.color;
     if (bossAxe) drawBossAxeShape(projectile.radius + 3, projectile.color);
+    else if (projectile.kind === "acorn") drawAcornShape(projectile.radius + 2, projectile.color);
     else drawShurikenShape(0, 0, projectile.radius + 3, projectile.color);
     ctx.restore();
+  }
+
+  function drawSwordWaveProjectile(p, alpha) {
+    const angle = Math.atan2(p.dirY, p.dirX);
+    ctx.globalAlpha = Math.min(1, 0.5 + alpha * 0.5);
+    ctx.translate(p.x, p.y);
+    ctx.rotate(angle);
+    ctx.shadowBlur = 16;
+    ctx.shadowColor = p.color;
+    ctx.strokeStyle = withAlpha(p.color, 0.5);
+    ctx.lineWidth = 8;
+    ctx.lineCap = "round";
+    ctx.beginPath();
+    ctx.moveTo(-6, 0);
+    ctx.lineTo(-36, 0);
+    ctx.stroke();
+    ctx.fillStyle = "#dfe7ee";
+    ctx.strokeStyle = p.color;
+    ctx.lineWidth = 2.5;
+    ctx.beginPath();
+    ctx.moveTo(p.radius + 4, 0);
+    ctx.lineTo(-2, -p.radius * 0.6);
+    ctx.lineTo(-6, 0);
+    ctx.lineTo(-2, p.radius * 0.6);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+    ctx.fillStyle = "rgba(255,255,255,0.9)";
+    ctx.beginPath();
+    ctx.moveTo(p.radius, 0);
+    ctx.lineTo(2, -p.radius * 0.28);
+    ctx.lineTo(2, p.radius * 0.28);
+    ctx.closePath();
+    ctx.fill();
   }
 
   function drawBossAxeShape(radius, color) {
@@ -4233,6 +5078,27 @@
     ctx.arc(0, 0, radius * 0.2, 0, Math.PI * 2);
     ctx.fill();
     ctx.stroke();
+    ctx.restore();
+  }
+
+  function drawAcornShape(radius, color) {
+    ctx.save();
+    ctx.fillStyle = "#8b6542";
+    ctx.strokeStyle = COLORS.ink;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.ellipse(0, radius * 0.1, radius * 0.7, radius * 0.85, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+    ctx.fillStyle = "#c49a5c";
+    ctx.beginPath();
+    ctx.ellipse(0, -radius * 0.35, radius * 0.72, radius * 0.42, 0, Math.PI, 0);
+    ctx.fill();
+    ctx.stroke();
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    ctx.arc(0, 0, radius * 0.22, 0, Math.PI * 2);
+    ctx.fill();
     ctx.restore();
   }
 

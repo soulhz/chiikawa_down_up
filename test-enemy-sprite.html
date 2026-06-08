@@ -1,0 +1,480 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>敌人精灵图编辑器</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: #4a4a4a; font-family: sans-serif; color: #eee; padding: 16px; }
+  h3 { margin: 12px 0 8px; }
+  .controls { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; margin-bottom: 12px; padding: 10px; background: #333; border-radius: 6px; }
+  .controls label { font-size: 13px; }
+  .controls select, .controls input { font-size: 13px; padding: 3px 6px; }
+  .slider-group { display: flex; align-items: center; gap: 4px; }
+  .slider-group input[type=range] { width: 100px; }
+  .slider-group .val { width: 40px; text-align: right; font-size: 12px; color: #aaa; }
+  .btn { padding: 6px 14px; background: #2a7; color: #fff; border: none; border-radius: 4px; cursor: pointer; font-size: 13px; }
+  .btn:hover { background: #3b8; }
+  .btn.active { background: #e94; }
+  .preview-area { display: flex; gap: 20px; flex-wrap: wrap; align-items: flex-start; }
+  .source-view { position: relative; border: 2px solid #666; display: inline-block; overflow: hidden; }
+  .cell-overlay { position: absolute; border: 2px solid rgba(255,255,0,0.8); pointer-events: none; }
+  .adj-overlay { position: absolute; border: 2px solid rgba(0,255,0,0.7); pointer-events: none; }
+  .result-canvas { border: 2px solid #0f0; background: repeating-conic-gradient(#555 0% 25%, #444 0% 50%) 50%/16px 16px; }
+  .frame-strip { display: flex; gap: 4px; flex-wrap: wrap; margin: 8px 0; }
+  .frame-strip canvas { border: 1px solid #555; cursor: pointer; background: repeating-conic-gradient(#555 0% 25%, #444 0% 50%) 50%/8px 8px; }
+  .frame-strip canvas.active { border: 2px solid #0ff; }
+  .grid-view { display: grid; grid-template-columns: repeat(6, auto); gap: 2px; margin: 8px 0; }
+  .grid-view canvas { border: 1px solid #555; cursor: pointer; background: repeating-conic-gradient(#555 0% 25%, #444 0% 50%) 50%/8px 8px; }
+  .grid-view canvas.active { border: 2px solid #0ff; }
+  .grid-label { font-size: 11px; color: #aaa; text-align: center; padding: 2px; background: #333; }
+  .anim-canvas { border: 2px solid #fa0; background: repeating-conic-gradient(#555 0% 25%, #444 0% 50%) 50%/16px 16px; }
+  .info { font-size: 12px; color: #aaa; margin-top: 8px; padding: 8px; background: #222; border-radius: 4px; font-family: monospace; white-space: pre-wrap; }
+</style>
+</head>
+<body>
+<h3>敌人精灵图编辑器 - 6×5 网格 (正面/侧面/背面/攻击/表情)</h3>
+
+<div class="controls">
+  <label>敌人:
+    <select id="enemySelect">
+      <option value="farmer">农民 (farmer)</option>
+      <option value="ashigaru">足轻 (ashigaru)</option>
+      <option value="samurai">武士 (samurai)</option>
+      <option value="ninja">忍者 (ninja)</option>
+      <option value="daimyo">大名 (daimyo)</option>
+      <option value="shogun">将军 (shogun)</option>
+      <option value="momonga">飞鼠 (momonga)</option>
+    </select>
+  </label>
+  <label>行:
+    <select id="rowSelect">
+      <option value="0">正面 (row 0)</option>
+      <option value="1">侧面 (row 1)</option>
+      <option value="2">背面 (row 2)</option>
+      <option value="3" selected>攻击 (row 3)</option>
+      <option value="4">表情 (row 4)</option>
+    </select>
+  </label>
+  <label>帧:
+    <select id="frameSelect">
+      <option value="0">0</option>
+      <option value="1">1</option>
+      <option value="2" selected>2</option>
+      <option value="3">3</option>
+      <option value="4">4</option>
+      <option value="5">5</option>
+    </select>
+  </label>
+  <label>背景去除:
+    <select id="bgMode">
+      <option value="auto">自动检测</option>
+      <option value="purple">紫色</option>
+      <option value="black">黑色</option>
+      <option value="white">白色</option>
+      <option value="none">不去除</option>
+    </select>
+  </label>
+</div>
+
+<div class="controls">
+  <div class="slider-group">
+    <label>dx:</label>
+    <input type="range" id="dx" min="-80" max="80" value="0">
+    <span class="val" id="dxVal">0</span>
+  </div>
+  <div class="slider-group">
+    <label>dy:</label>
+    <input type="range" id="dy" min="-80" max="80" value="0">
+    <span class="val" id="dyVal">0</span>
+  </div>
+  <div class="slider-group">
+    <label>dw:</label>
+    <input type="range" id="dw" min="-40" max="120" value="0">
+    <span class="val" id="dwVal">0</span>
+  </div>
+  <div class="slider-group">
+    <label>dh:</label>
+    <input type="range" id="dh" min="-40" max="120" value="0">
+    <span class="val" id="dhVal">0</span>
+  </div>
+  <button class="btn" id="resetBtn">重置</button>
+  <button class="btn" id="exportBtn">导出偏移量</button>
+</div>
+
+<div class="controls">
+  <label>动画速度:
+    <input type="range" id="animSpeed" min="50" max="500" value="150" style="width:100px;">
+    <span id="animSpeedVal" style="font-size:12px;color:#aaa;width:40px;display:inline-block;">150ms</span>
+  </label>
+  <button class="btn" id="playBtn">播放行动画</button>
+  <button class="btn" id="stopBtn">停止</button>
+  <span id="animInfo" style="font-size:12px;color:#aaa;"></span>
+</div>
+
+<div class="preview-area">
+  <div>
+    <p style="font-size:12px;color:#aaa;">原图 (黄色=原始格子, 绿色=调整后)</p>
+    <div class="source-view" id="sourceView">
+      <canvas id="sourceCanvas"></canvas>
+      <div class="cell-overlay" id="cellOverlay"></div>
+      <div class="adj-overlay" id="adjOverlay"></div>
+    </div>
+  </div>
+  <div>
+    <p style="font-size:12px;color:#aaa;">结果 (去除背景)</p>
+    <canvas id="resultCanvas" class="result-canvas"></canvas>
+  </div>
+  <div>
+    <p style="font-size:12px;color:#aaa;">动画预览</p>
+    <canvas id="animCanvas" class="anim-canvas"></canvas>
+  </div>
+</div>
+
+<h3>完整 6×5 网格 (点击选择):</h3>
+<div id="gridContainer"></div>
+
+<h3>当前行帧 (点击选择):</h3>
+<div class="frame-strip" id="frameStrip"></div>
+
+<h3>图片信息:</h3>
+<div class="info" id="imgInfo">加载中...</div>
+
+<h3>已保存偏移量:</h3>
+<div class="info" id="offsetInfo">暂无偏移量。</div>
+
+<script>
+const ROW_LABELS = ["正面", "侧面", "背面", "攻击", "表情"];
+const ROW_KEYS = ["front", "side", "back", "attack", "emote"];
+const images = {};
+const offsets = {};
+let currentImg = null;
+let animInterval = null;
+let animFrame = 0;
+
+function loadImage(name) {
+  return new Promise(resolve => {
+    if (images[name]) return resolve(images[name]);
+    const img = new Image();
+    img.onload = () => { images[name] = img; resolve(img); };
+    img.onerror = () => { console.error("Failed to load", name); resolve(null); };
+    img.src = `asset/enemies/${name}-sheet.png?v=${Date.now()}`;
+  });
+}
+
+function detectBgType(image) {
+  const c = document.createElement("canvas");
+  c.width = image.width; c.height = image.height;
+  const cx = c.getContext("2d");
+  cx.drawImage(image, 0, 0);
+  const d = cx.getImageData(0, 0, 8, 8).data;
+  let rSum = 0, gSum = 0, bSum = 0, count = 0;
+  for (let i = 0; i < d.length; i += 4) {
+    if (d[i+3] < 128) continue;
+    rSum += d[i]; gSum += d[i+1]; bSum += d[i+2]; count++;
+  }
+  if (count === 0) return "none";
+  const r = rSum/count, g = gSum/count, b = bSum/count;
+  if (b > 150 && r > 80 && r < 200 && g < 160 && b - g > 50) return "purple";
+  if (r < 40 && g < 40 && b < 40) return "black";
+  if (r > 200 && g > 200 && b > 200) return "white";
+  return "purple";
+}
+
+function removeBg(image, sx, sy, sw, sh, mode) {
+  const out = document.createElement("canvas");
+  out.width = Math.ceil(sw);
+  out.height = Math.ceil(sh);
+  const ctx = out.getContext("2d");
+  ctx.imageSmoothingEnabled = false;
+  ctx.drawImage(image, sx, sy, sw, sh, 0, 0, out.width, out.height);
+  if (mode === "none") return out;
+  const pixels = ctx.getImageData(0, 0, out.width, out.height);
+  const data = pixels.data;
+  const w = out.width, h = out.height;
+
+  if (mode === "white") {
+    for (let i = 0; i < data.length; i += 4) {
+      const r = data[i], g = data[i+1], b = data[i+2];
+      if (r > 220 && g > 220 && b > 220) data[i+3] = 0;
+    }
+    ctx.putImageData(pixels, 0, 0);
+    return out;
+  }
+
+  const matchFn = mode === "purple"
+    ? (r,g,b) => b > 150 && r > 80 && r < 200 && g < 160 && b - g > 50
+    : (r,g,b) => r < 55 && g < 55 && b < 55;
+
+  const visited = new Uint8Array(w * h);
+  const stack = [];
+  for (let x = 0; x < w; x++) { stack.push(x, 0); stack.push(x, h - 1); }
+  for (let y = 1; y < h - 1; y++) { stack.push(0, y); stack.push(w - 1, y); }
+  while (stack.length > 0) {
+    const cy = stack.pop(), cx = stack.pop();
+    if (cx < 0 || cx >= w || cy < 0 || cy >= h) continue;
+    const idx = cy * w + cx;
+    if (visited[idx]) continue;
+    const pi = idx * 4;
+    if (!matchFn(data[pi], data[pi+1], data[pi+2])) continue;
+    visited[idx] = 1;
+    data[pi+3] = 0;
+    stack.push(cx-1, cy); stack.push(cx+1, cy);
+    stack.push(cx, cy-1); stack.push(cx, cy+1);
+  }
+  ctx.putImageData(pixels, 0, 0);
+  return out;
+}
+
+function getKey(enemy, row, col) { return `${enemy}_${row}_${col}`; }
+
+function getOffset(enemy, row, col) {
+  return offsets[getKey(enemy, row, col)] || { dx: 0, dy: 0, dw: 0, dh: 0 };
+}
+
+function setOffset(enemy, row, col, o) {
+  const key = getKey(enemy, row, col);
+  if (o.dx === 0 && o.dy === 0 && o.dw === 0 && o.dh === 0) {
+    delete offsets[key];
+  } else {
+    offsets[key] = { ...o };
+  }
+  updateOffsetDisplay();
+}
+
+function updateOffsetDisplay() {
+  const keys = Object.keys(offsets).sort();
+  if (keys.length === 0) {
+    document.getElementById("offsetInfo").textContent = "暂无偏移量。";
+    return;
+  }
+  let text = "ENEMY_FRAME_OFFSETS = {\n";
+  for (const key of keys) {
+    const o = offsets[key];
+    const [enemy, row, col] = key.split("_");
+    text += `  "${enemy}.${ROW_KEYS[row]}.${col}": { dx: ${o.dx}, dy: ${o.dy}, dw: ${o.dw}, dh: ${o.dh} },\n`;
+  }
+  text += "};";
+  document.getElementById("offsetInfo").textContent = text;
+}
+
+function getState() {
+  return {
+    enemy: document.getElementById("enemySelect").value,
+    row: parseInt(document.getElementById("rowSelect").value),
+    col: parseInt(document.getElementById("frameSelect").value),
+    bgMode: document.getElementById("bgMode").value,
+    dx: parseInt(document.getElementById("dx").value),
+    dy: parseInt(document.getElementById("dy").value),
+    dw: parseInt(document.getElementById("dw").value),
+    dh: parseInt(document.getElementById("dh").value),
+  };
+}
+
+function getBgMode(img) {
+  const mode = document.getElementById("bgMode").value;
+  return mode === "auto" ? detectBgType(img) : mode;
+}
+
+function refresh() {
+  const s = getState();
+  document.getElementById("dxVal").textContent = s.dx;
+  document.getElementById("dyVal").textContent = s.dy;
+  document.getElementById("dwVal").textContent = s.dw;
+  document.getElementById("dhVal").textContent = s.dh;
+
+  loadImage(s.enemy).then(img => {
+    if (!img) { document.getElementById("imgInfo").textContent = "加载图片失败。"; return; }
+    currentImg = img;
+    const cellW = img.width / 6;
+    const cellH = img.height / 5;
+    const bgMode = getBgMode(img);
+
+    document.getElementById("imgInfo").textContent =
+      `图片: ${img.width}×${img.height}  格子: ${Math.round(cellW)}×${Math.round(cellH)}  背景: ${bgMode}  敌人: ${s.enemy}`;
+
+    const scale = Math.min(400 / img.width, 350 / img.height);
+    const srcCanvas = document.getElementById("sourceCanvas");
+    srcCanvas.width = Math.round(img.width * scale);
+    srcCanvas.height = Math.round(img.height * scale);
+    const srcCtx = srcCanvas.getContext("2d");
+    srcCtx.drawImage(img, 0, 0, srcCanvas.width, srcCanvas.height);
+
+    const overlay = document.getElementById("cellOverlay");
+    overlay.style.left = (s.col * cellW * scale) + "px";
+    overlay.style.top = (s.row * cellH * scale) + "px";
+    overlay.style.width = (cellW * scale) + "px";
+    overlay.style.height = (cellH * scale) + "px";
+
+    const adjOverlay = document.getElementById("adjOverlay");
+    adjOverlay.style.left = ((s.col * cellW + s.dx) * scale) + "px";
+    adjOverlay.style.top = ((s.row * cellH + s.dy) * scale) + "px";
+    adjOverlay.style.width = ((cellW + s.dw) * scale) + "px";
+    adjOverlay.style.height = ((cellH + s.dh) * scale) + "px";
+
+    const sx = s.col * cellW + s.dx;
+    const sy = s.row * cellH + s.dy;
+    const sw = cellW + s.dw;
+    const sh = cellH + s.dh;
+    const result = removeBg(img, sx, sy, sw, sh, bgMode);
+    const resultCanvas = document.getElementById("resultCanvas");
+    const rScale = Math.min(200 / sw, 200 / sh, 2);
+    resultCanvas.width = Math.round(sw * rScale);
+    resultCanvas.height = Math.round(sh * rScale);
+    const rCtx = resultCanvas.getContext("2d");
+    rCtx.imageSmoothingEnabled = false;
+    rCtx.drawImage(result, 0, 0, resultCanvas.width, resultCanvas.height);
+
+    const strip = document.getElementById("frameStrip");
+    strip.innerHTML = "";
+    for (let col = 0; col < 6; col++) {
+      const o = getOffset(s.enemy, s.row, col);
+      const fsx = col * cellW + o.dx;
+      const fsy = s.row * cellH + o.dy;
+      const fsw = cellW + o.dw;
+      const fsh = cellH + o.dh;
+      const frame = removeBg(img, fsx, fsy, fsw, fsh, bgMode);
+      const thumbScale = 80 / Math.max(fsw, fsh);
+      const thumb = document.createElement("canvas");
+      thumb.width = Math.round(fsw * thumbScale);
+      thumb.height = Math.round(fsh * thumbScale);
+      thumb.title = `${ROW_LABELS[s.row]} 帧${col}${o.dx||o.dy||o.dw||o.dh ? " (已调整)" : ""}`;
+      if (col === s.col) thumb.classList.add("active");
+      const tCtx = thumb.getContext("2d");
+      tCtx.imageSmoothingEnabled = false;
+      tCtx.drawImage(frame, 0, 0, thumb.width, thumb.height);
+      thumb.onclick = () => {
+        document.getElementById("frameSelect").value = col;
+        const existingOff = getOffset(s.enemy, s.row, col);
+        document.getElementById("dx").value = existingOff.dx;
+        document.getElementById("dy").value = existingOff.dy;
+        document.getElementById("dw").value = existingOff.dw;
+        document.getElementById("dh").value = existingOff.dh;
+        refresh();
+      };
+      strip.appendChild(thumb);
+    }
+
+    const gridContainer = document.getElementById("gridContainer");
+    gridContainer.innerHTML = "";
+    const grid = document.createElement("div");
+    grid.className = "grid-view";
+    grid.style.gridTemplateColumns = "60px repeat(6, auto)";
+    for (let row = 0; row < 5; row++) {
+      const label = document.createElement("div");
+      label.className = "grid-label";
+      label.textContent = ROW_LABELS[row];
+      label.style.display = "flex"; label.style.alignItems = "center"; label.style.justifyContent = "center";
+      grid.appendChild(label);
+      for (let col = 0; col < 6; col++) {
+        const o = getOffset(s.enemy, row, col);
+        const gsx = col * cellW + o.dx;
+        const gsy = row * cellH + o.dy;
+        const gsw = cellW + o.dw;
+        const gsh = cellH + o.dh;
+        const frame = removeBg(img, gsx, gsy, gsw, gsh, bgMode);
+        const gridScale = 56 / Math.max(gsw, gsh);
+        const cell = document.createElement("canvas");
+        cell.width = Math.round(gsw * gridScale);
+        cell.height = Math.round(gsh * gridScale);
+        cell.title = `${ROW_LABELS[row]} 帧${col}`;
+        if (row === s.row && col === s.col) cell.classList.add("active");
+        const cCtx = cell.getContext("2d");
+        cCtx.imageSmoothingEnabled = false;
+        cCtx.drawImage(frame, 0, 0, cell.width, cell.height);
+        cell.onclick = () => {
+          document.getElementById("rowSelect").value = row;
+          document.getElementById("frameSelect").value = col;
+          const existingOff = getOffset(s.enemy, row, col);
+          document.getElementById("dx").value = existingOff.dx;
+          document.getElementById("dy").value = existingOff.dy;
+          document.getElementById("dw").value = existingOff.dw;
+          document.getElementById("dh").value = existingOff.dh;
+          refresh();
+        };
+        grid.appendChild(cell);
+      }
+    }
+    gridContainer.appendChild(grid);
+
+    setOffset(s.enemy, s.row, s.col, { dx: s.dx, dy: s.dy, dw: s.dw, dh: s.dh });
+  });
+}
+
+function playAnimation() {
+  stopAnimation();
+  const s = getState();
+  animFrame = 0;
+  const speed = parseInt(document.getElementById("animSpeed").value);
+  document.getElementById("playBtn").classList.add("active");
+  document.getElementById("animInfo").textContent = `播放 ${ROW_LABELS[s.row]}...`;
+  animInterval = setInterval(() => {
+    if (!currentImg) return;
+    const bgMode = getBgMode(currentImg);
+    const cellW = currentImg.width / 6;
+    const cellH = currentImg.height / 5;
+    const o = getOffset(s.enemy, s.row, animFrame);
+    const sx = animFrame * cellW + o.dx;
+    const sy = s.row * cellH + o.dy;
+    const sw = cellW + o.dw;
+    const sh = cellH + o.dh;
+    const frame = removeBg(currentImg, sx, sy, sw, sh, bgMode);
+    const animCanvas = document.getElementById("animCanvas");
+    const aScale = Math.min(180 / sw, 180 / sh, 2);
+    animCanvas.width = Math.round(sw * aScale);
+    animCanvas.height = Math.round(sh * aScale);
+    const aCtx = animCanvas.getContext("2d");
+    aCtx.imageSmoothingEnabled = false;
+    aCtx.drawImage(frame, 0, 0, animCanvas.width, animCanvas.height);
+    document.getElementById("animInfo").textContent = `${ROW_LABELS[s.row]} 帧${animFrame}`;
+    animFrame = (animFrame + 1) % 6;
+  }, speed);
+}
+
+function stopAnimation() {
+  if (animInterval) { clearInterval(animInterval); animInterval = null; }
+  document.getElementById("playBtn").classList.remove("active");
+  document.getElementById("animInfo").textContent = "";
+}
+
+document.getElementById("playBtn").onclick = playAnimation;
+document.getElementById("stopBtn").onclick = stopAnimation;
+document.getElementById("animSpeed").oninput = () => {
+  document.getElementById("animSpeedVal").textContent = document.getElementById("animSpeed").value + "ms";
+  if (animInterval) playAnimation();
+};
+
+document.getElementById("resetBtn").onclick = () => {
+  document.getElementById("dx").value = 0;
+  document.getElementById("dy").value = 0;
+  document.getElementById("dw").value = 0;
+  document.getElementById("dh").value = 0;
+  refresh();
+};
+
+document.getElementById("exportBtn").onclick = () => {
+  const text = document.getElementById("offsetInfo").textContent;
+  navigator.clipboard.writeText(text).then(() => alert("已复制到剪贴板！"));
+};
+
+["enemySelect", "rowSelect", "frameSelect", "bgMode"].forEach(id => {
+  document.getElementById(id).addEventListener("change", () => {
+    stopAnimation();
+    const s = getState();
+    const existingOff = getOffset(s.enemy, s.row, s.col);
+    document.getElementById("dx").value = existingOff.dx;
+    document.getElementById("dy").value = existingOff.dy;
+    document.getElementById("dw").value = existingOff.dw;
+    document.getElementById("dh").value = existingOff.dh;
+    refresh();
+  });
+});
+
+["dx", "dy", "dw", "dh"].forEach(id => {
+  document.getElementById(id).addEventListener("input", refresh);
+});
+
+refresh();
+</script>
+</body>
+</html>
